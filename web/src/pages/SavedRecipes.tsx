@@ -24,7 +24,7 @@ export default function SavedRecipes() {
     <div className="max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold text-stone-800 mb-6">{t('nav.saved')}</h1>
 
-      {categories?.length > 0 && (
+      {(categories?.length ?? 0) > 0 && (
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
           <button
             onClick={() => setSelectedCategory(null)}
@@ -35,7 +35,7 @@ export default function SavedRecipes() {
           >
             {t('nav.saved')}
           </button>
-          {categories.map((cat: any) => (
+          {categories!.map((cat: any) => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
@@ -56,14 +56,14 @@ export default function SavedRecipes() {
         </div>
       ) : filtered?.length ? (
         <>
-          {favorites?.length > 0 && (
+          {(favorites?.length ?? 0) > 0 && (
             <div className="mb-8">
               <h2 className="text-lg font-semibold text-stone-700 mb-3 flex items-center gap-2">
                 <Heart size={18} className="text-secondary" />
                 {t('recipe.favorite')}
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {favorites.map((sr: any) => (
+                {favorites!.map((sr: any) => (
                   <RecipeCard key={sr.id} recipe={sr.recipe} />
                 ))}
               </div>

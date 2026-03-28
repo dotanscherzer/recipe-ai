@@ -1,20 +1,20 @@
 import { Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { env } from '../../../config/env';
-import { prisma } from '../../../config/db';
-import { AuthRequest } from '../../../middleware/auth';
-import { AppError } from '../../../middleware/errorHandler';
+import { env } from '../../config/env';
+import { prisma } from '../../config/db';
+import { AuthRequest } from '../../middleware/auth';
+import { AppError } from '../../middleware/errorHandler';
 
 function generateAccessToken(userId: string): string {
   return jwt.sign({ userId }, env.JWT_ACCESS_SECRET, {
-    expiresIn: env.JWT_ACCESS_EXPIRY,
+    expiresIn: env.JWT_ACCESS_EXPIRY as any,
   });
 }
 
 function generateRefreshToken(userId: string): string {
   return jwt.sign({ userId }, env.JWT_REFRESH_SECRET, {
-    expiresIn: env.JWT_REFRESH_EXPIRY,
+    expiresIn: env.JWT_REFRESH_EXPIRY as any,
   });
 }
 

@@ -56,14 +56,14 @@ export default function Profile() {
         </button>
       </div>
 
-      {categories?.length > 0 && (
+      {(categories?.length ?? 0) > 0 && (
         <div className="glass-card p-4 mb-4">
           <h3 className="text-sm font-semibold text-stone-600 mb-3 flex items-center gap-2">
             <FolderOpen size={16} />
             {t('profile.categories')}
           </h3>
           <div className="space-y-2">
-            {categories.map((cat: any) => (
+            {categories!.map((cat: any) => (
               <div
                 key={cat.id}
                 className="flex items-center gap-3 p-2 rounded-lg"
