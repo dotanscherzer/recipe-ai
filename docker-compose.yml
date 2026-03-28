@@ -40,7 +40,10 @@ services:
     restart: unless-stopped
 
   web:
-    build: ./web
+    build:
+      context: ./web
+      args:
+        VITE_API_URL: ${API_URL:-/api}
     ports:
       - "${WEB_PORT:-8081}:80"
     depends_on:
