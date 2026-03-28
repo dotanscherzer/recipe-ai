@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-recipe_ai}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-recipe_ai_dev}
+      POSTGRES_DB: ${DB_NAME:-recipe_ai_dev}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    ports:
+      - "${API_PORT:-3001}:${API_PORT:-3001}"
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    env_file: .env
+    environment:
+      PORT: ${API_PORT:-3001}
+      DATABASE_URL: postgresql://${DB_USER:-recipe_ai}:${DB_PASSWORD:-recipe_ai_dev}@postgres:5432/${DB_NAME:-recipe_ai_dev}
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    ports:
+      - "${WEB_PORT:-8081}:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  minio_data:

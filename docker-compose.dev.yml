@@ -1,0 +1,30 @@
+services:
+  postgres:
+    ports:
+      - "5433:5432"
+  redis:
+    ports:
+      - "6380:6379"
+  minio:
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+      target: development
+    volumes:
+      - ./api/src:/app/src
+      - ./api/prisma:/app/prisma
+    ports:
+      - "3001:3001"
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      target: development
+    volumes:
+      - ./web/src:/app/src
+    ports:
+      - "5173:5173"

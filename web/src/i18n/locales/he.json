@@ -1,0 +1,10 @@
+{
+  "app": { "name": "Recipe AI", "tagline": "הבישול שלך, חכם יותר" },
+  "nav": { "home": "בית", "search": "חיפוש", "myRecipes": "המתכונים שלי", "saved": "שמורים", "profile": "פרופיל", "login": "התחברות", "register": "הרשמה", "logout": "התנתקות" },
+  "recipe": { "title": "כותרת", "description": "תיאור", "ingredients": "מרכיבים", "steps": "שלבי הכנה", "prepTime": "זמן הכנה", "cookTime": "זמן בישול", "servings": "מנות", "difficulty": "רמת קושי", "cuisine": "סוג מטבח", "tags": "תגיות", "easy": "קל", "medium": "בינוני", "hard": "מאתגר", "minutes": "דקות", "save": "שמור", "saved": "שמור", "favorite": "מועדף", "edit": "עריכה", "delete": "מחיקה", "aiGenerated": "נוצר ע\"י AI", "noImage": "אין תמונה" },
+  "search": { "placeholder": "חפש מתכונים...", "byKeyword": "לפי מילת מפתח", "byIngredients": "לפי מרכיבים", "import": "ייבוא", "noResults": "לא נמצאו תוצאות", "searching": "מחפש...", "aiGenerating": "AI מייצר מתכונים..." },
+  "ai": { "chef": "שף AI", "generate": "יצירת מתכון", "modify": "שינוי מתכון", "importText": "ייבוא מטקסט", "importUrl": "ייבוא מ-URL", "importImage": "ייבוא מתמונה", "chatPlaceholder": "שאל את השף AI...", "generating": "מייצר...", "processing": "מעבד..." },
+  "auth": { "email": "אימייל", "password": "סיסמה", "fullName": "שם מלא", "loginTitle": "התחברות", "registerTitle": "הרשמה", "noAccount": "אין לך חשבון?", "hasAccount": "יש לך כבר חשבון?", "orContinueWith": "או המשך עם" },
+  "common": { "save": "שמירה", "cancel": "ביטול", "delete": "מחיקה", "edit": "עריכה", "loading": "טוען...", "error": "שגיאה", "success": "הצלחה", "confirm": "אישור", "back": "חזרה", "next": "הבא", "previous": "הקודם", "create": "יצירה", "update": "עדכון", "empty": "אין פריטים להצגה" },
+  "profile": { "title": "פרופיל", "settings": "הגדרות", "language": "שפה", "categories": "קטגוריות" }
+}
