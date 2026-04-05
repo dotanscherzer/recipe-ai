@@ -19,4 +19,6 @@ RUN npm run build
 # Stage 3: Production (serve with nginx)
 FROM nginx:alpine AS production
 COPY --from=build /app/dist /usr/share/nginx/html
+# Ensures /vite.svg exists even if crawlers/analytics request it (Vite also copies public/ into dist).
+COPY --from=build /app/public/vite.svg /usr/share/nginx/html/vite.svg
 COPY nginx.conf /etc/nginx/conf.d/default.conf
