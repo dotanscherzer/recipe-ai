@@ -2,7 +2,9 @@ import nodemailer from 'nodemailer';
 import { env } from '../config/env';
 
 function smtpConfigured(): boolean {
-  return Boolean(env.SMTP_HOST && env.SMTP_PORT && env.SMTP_FROM);
+  return Boolean(
+    env.SMTP_HOST && env.SMTP_PORT && env.SMTP_FROM && env.SMTP_USER && env.SMTP_PASS,
+  );
 }
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
@@ -23,15 +25,24 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string): Prom
   }
 
   const port = parseInt(env.SMTP_PORT!, 10);
+  // smtp-connection supports extra fields (family, timeouts) not in @types/nodemailer
   const transporter = nodemailer.createTransport({
     host: env.SMTP_HOST,
     port,
     secure: port === 465,
+    requireTLS: port === 587,
     auth:
       env.SMTP_USER && env.SMTP_PASS
         ? { user: env.SMTP_USER, pass: env.SMTP_PASS }
         : undefined,
-  });
+    connectionTimeout: 20_000,
+    greetingTimeout: 20_000,
+    socketTimeout: 25_000,
+    family: 4,
+    tls: {
+      minVersion: 'TLSv1.2' as const,
+    },
+  } as Parameters<typeof nodemailer.createTransport>[0]);
 
   await transporter.sendMail({
     from: env.SMTP_FROM,

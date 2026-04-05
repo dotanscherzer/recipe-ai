@@ -55,7 +55,7 @@ export async function forgotPassword(req: AuthRequest, res: Response) {
   const rawToken = randomBytes(32).toString('base64url');
   const tokenHash = hashResetToken(rawToken);
 
-  await prisma.passwordResetToken.create({
+  const resetRow = await prisma.passwordResetToken.create({
     data: {
       userId: user.id,
       tokenHash,
@@ -66,7 +66,12 @@ export async function forgotPassword(req: AuthRequest, res: Response) {
   const base = env.APP_URL.replace(/\/$/, '');
   const resetUrl = `${base}/reset-password?token=${encodeURIComponent(rawToken)}`;
 
-  await sendPasswordResetEmail(user.email, resetUrl);
+  try {
+    await sendPasswordResetEmail(user.email, resetUrl);
+  } catch (err) {
+    await prisma.passwordResetToken.delete({ where: { id: resetRow.id } }).catch(() => {});
+    console.error('[auth] forgot-password: email send failed', err);
+  }
 
   res.json(okMessage);
 }
