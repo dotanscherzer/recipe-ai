@@ -46,12 +46,7 @@ export default function Login() {
             />
           </div>
           <div>
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-sm font-medium text-stone-700">{t('auth.password')}</label>
-              <Link to="/forgot-password" className="text-xs text-primary font-medium hover:underline">
-                {t('auth.forgotPasswordLink')}
-              </Link>
-            </div>
+            <label className="text-sm font-medium text-stone-700">{t('auth.password')}</label>
             <input
               type="password"
               value={password}
@@ -70,6 +65,15 @@ export default function Login() {
             {loading ? t('common.loading') : t('auth.loginTitle')}
           </button>
         </form>
+
+        <div className="mt-4 text-center">
+          <Link
+            to="/forgot-password"
+            className="text-sm text-primary font-semibold hover:underline underline-offset-2"
+          >
+            {t('auth.forgotPasswordLink')}
+          </Link>
+        </div>
 
         <div className="mt-6 text-center">
           <p className="text-sm text-stone-500">
