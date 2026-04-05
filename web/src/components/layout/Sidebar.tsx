@@ -47,7 +47,7 @@ export default function Sidebar() {
         <div className="p-4 border-t border-white/20">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-semibold">
-              {user.fullName.charAt(0)}
+              {(user.fullName ?? '?').charAt(0)}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{user.fullName}</p>

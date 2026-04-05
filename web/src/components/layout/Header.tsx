@@ -35,7 +35,7 @@ export default function Header() {
             to="/profile"
             className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-semibold text-sm"
           >
-            {user.fullName.charAt(0)}
+            {(user.fullName ?? '?').charAt(0)}
           </Link>
         ) : (
           <Link

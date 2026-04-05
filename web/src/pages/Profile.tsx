@@ -31,7 +31,7 @@ export default function Profile() {
       <div className="glass-card p-6 mb-4">
         <div className="flex items-center gap-4 mb-4">
           <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center text-primary text-2xl font-bold">
-            {user?.fullName.charAt(0)}
+            {(user?.fullName ?? '?').charAt(0)}
           </div>
           <div>
             <h2 className="text-lg font-semibold">{user?.fullName}</h2>

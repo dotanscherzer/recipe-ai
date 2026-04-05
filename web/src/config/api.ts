@@ -112,8 +112,17 @@ export const authApi = {
     const refreshToken = localStorage.getItem(REFRESH_KEY);
     return api('/auth/logout', { method: 'POST', body: JSON.stringify({ refreshToken }) });
   },
-  getMe: () => api<any>('/auth/me'),
-  updateMe: (data: any) => api<any>('/auth/me', { method: 'PUT', body: JSON.stringify(data) }),
+  getMe: async () => {
+    const res = await api<{ user: any }>('/auth/me');
+    return res.user;
+  },
+  updateMe: async (data: any) => {
+    const res = await api<{ user: any }>('/auth/me', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return res.user;
+  },
   getToken,
   setTokens,
   clearTokens,
