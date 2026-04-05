@@ -24,6 +24,14 @@ export const createRecipeSchema = z.object({
 
 export const updateRecipeSchema = createRecipeSchema.partial();
 
+export const listRecipeSchema = z.object({
+  cuisine: z.string().optional(),
+  difficulty: z.enum(['EASY', 'MEDIUM', 'HARD']).optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(50, 'Limit must be 50 or less').default(20),
+  createdBy: z.string().uuid().optional(),
+});
+
 export const searchRecipeSchema = z.object({
   q: z.string().optional(),
   ingredients: z.string().optional(),

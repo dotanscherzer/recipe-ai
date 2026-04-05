@@ -29,6 +29,38 @@ async function api<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   return response.json();
 }
 
+/** Backend list/search use `{ data, pagination }`; UI expects `{ recipes, total }`. */
+function normalizeRecipeListResponse(body: unknown): { recipes: any[]; total: number } {
+  if (!body || typeof body !== 'object') return { recipes: [], total: 0 };
+  const b = body as Record<string, unknown>;
+  if (Array.isArray(b.recipes)) {
+    const total = typeof b.total === 'number' ? b.total : b.recipes.length;
+    return { recipes: b.recipes as any[], total };
+  }
+  const data = b.data;
+  const pagination = b.pagination as Record<string, unknown> | undefined;
+  if (Array.isArray(data) && pagination && typeof pagination.total === 'number') {
+    return { recipes: data as any[], total: pagination.total };
+  }
+  if (Array.isArray(data)) {
+    return { recipes: data as any[], total: (data as any[]).length };
+  }
+  return { recipes: [], total: 0 };
+}
+
+function unwrapData<T>(body: unknown): T {
+  if (body && typeof body === 'object' && 'data' in body && (body as { data: unknown }).data !== undefined) {
+    return (body as { data: T }).data;
+  }
+  return body as T;
+}
+
+function unwrapNamedArray<T>(body: unknown, key: string): T[] {
+  if (!body || typeof body !== 'object') return [];
+  const v = (body as Record<string, unknown>)[key];
+  return Array.isArray(v) ? (v as T[]) : [];
+}
+
 async function refreshTokens(): Promise<boolean> {
   try {
     const refreshToken = localStorage.getItem(REFRESH_KEY);
@@ -84,29 +116,46 @@ export const authApi = {
 };
 
 export const recipesApi = {
-  list: (params?: Record<string, string>) => {
+  list: async (params?: Record<string, string>) => {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return api<{ recipes: any[]; total: number }>(`/recipes${query}`);
+    const raw = await api<unknown>(`/recipes${query}`);
+    return normalizeRecipeListResponse(raw);
   },
-  get: (id: string) => api<any>(`/recipes/${id}`),
-  create: (data: any) => api<any>('/recipes', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: any) => api<any>(`/recipes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  get: async (id: string) => {
+    const raw = await api<unknown>(`/recipes/${id}`);
+    return unwrapData<any>(raw);
+  },
+  create: async (data: any) => {
+    const raw = await api<unknown>('/recipes', { method: 'POST', body: JSON.stringify(data) });
+    return unwrapData<any>(raw);
+  },
+  update: async (id: string, data: any) => {
+    const raw = await api<unknown>(`/recipes/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+    return unwrapData<any>(raw);
+  },
   delete: (id: string) => api(`/recipes/${id}`, { method: 'DELETE' }),
-  search: (params: Record<string, string>) => {
+  search: async (params: Record<string, string>) => {
     const query = '?' + new URLSearchParams(params).toString();
-    return api<{ recipes: any[]; total: number }>(`/recipes/search${query}`);
+    const raw = await api<unknown>(`/recipes/search${query}`);
+    return normalizeRecipeListResponse(raw);
   },
 };
 
 export const savedRecipesApi = {
-  list: () => api<any[]>('/saved-recipes'),
+  list: async () => {
+    const raw = await api<unknown>('/saved-recipes');
+    return unwrapNamedArray<any>(raw, 'savedRecipes');
+  },
   save: (data: any) => api<any>('/saved-recipes', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: string, data: any) => api<any>(`/saved-recipes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) => api(`/saved-recipes/${id}`, { method: 'DELETE' }),
 };
 
 export const categoriesApi = {
-  list: () => api<any[]>('/categories'),
+  list: async () => {
+    const raw = await api<unknown>('/categories');
+    return unwrapNamedArray<any>(raw, 'categories');
+  },
   create: (data: any) => api<any>('/categories', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: string, data: any) => api<any>(`/categories/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) => api(`/categories/${id}`, { method: 'DELETE' }),

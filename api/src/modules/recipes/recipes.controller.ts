@@ -1,16 +1,34 @@
 import { Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { AuthRequest } from '../../middleware/auth';
 import { prisma } from '../../config/db';
 import { AppError } from '../../middleware/errorHandler';
+import { listRecipeSchema, searchRecipeSchema } from './recipes.schemas';
+
+type ListRecipeQuery = z.infer<typeof listRecipeSchema>;
 
 export async function listRecipes(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { cuisine, difficulty, page = '1', limit = '20' } = req.query as Record<string, string>;
-    const pageNum = Math.max(1, parseInt(page) || 1);
-    const limitNum = Math.min(50, Math.max(1, parseInt(limit) || 20));
+    const q = req.query as unknown as ListRecipeQuery;
+    const pageNum = Math.max(1, q.page);
+    const limitNum = Math.min(50, Math.max(1, q.limit));
     const skip = (pageNum - 1) * limitNum;
 
-    const where: Record<string, unknown> = { isPublic: true };
+    const { cuisine, difficulty, createdBy } = q;
+
+    let where: Record<string, unknown>;
+
+    if (createdBy) {
+      const isOwner = req.userId === createdBy;
+      const isAdmin = req.userRole === 'ADMIN';
+      if (!isOwner && !isAdmin) {
+        throw new AppError(403, 'You can only list your own recipes with this filter');
+      }
+      where = { createdById: createdBy };
+    } else {
+      where = { isPublic: true };
+    }
+
     if (cuisine) where.cuisine = cuisine;
     if (difficulty) where.difficulty = difficulty;
 
@@ -58,6 +76,15 @@ export async function getRecipe(req: AuthRequest, res: Response, next: NextFunct
 
     if (!recipe) {
       throw new AppError(404, 'Recipe not found');
+    }
+
+    if (!recipe.isPublic) {
+      const canView =
+        req.userId &&
+        (recipe.createdById === req.userId || req.userRole === 'ADMIN');
+      if (!canView) {
+        throw new AppError(404, 'Recipe not found');
+      }
     }
 
     // Check saved status for authenticated user (optional auth via header)
@@ -151,17 +178,18 @@ export async function deleteRecipe(req: AuthRequest, res: Response, next: NextFu
 
 export async function searchRecipes(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { q, ingredients, cuisine, difficulty, page, limit } = req.query as Record<string, string>;
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 20;
+    const parsed = req.query as unknown as z.infer<typeof searchRecipeSchema>;
+    const { q: searchQ, ingredients, cuisine, difficulty, page, limit } = parsed;
+    const pageNum = page;
+    const limitNum = limit;
     const skip = (pageNum - 1) * limitNum;
 
     const where: Record<string, unknown> = { isPublic: true };
 
-    if (q) {
+    if (searchQ) {
       where.OR = [
-        { title: { contains: q, mode: 'insensitive' } },
-        { description: { contains: q, mode: 'insensitive' } },
+        { title: { contains: searchQ, mode: 'insensitive' } },
+        { description: { contains: searchQ, mode: 'insensitive' } },
       ];
     }
 
@@ -170,23 +198,13 @@ export async function searchRecipes(req: AuthRequest, res: Response, next: NextF
 
     if (ingredients) {
       const ingredientList = ingredients.split(',').map(i => i.trim()).filter(Boolean);
-      where.ingredients = {
-        string_contains: ingredientList.length === 1
-          ? ingredientList[0]
-          : undefined,
-      };
-      // For multiple ingredients, use AND conditions on the JSON field
       if (ingredientList.length > 0) {
-        const ingredientConditions = ingredientList.map(ingredient => ({
+        const ingredientClauses = ingredientList.map((ingredient) => ({
           ingredients: { string_contains: ingredient },
         }));
-        if (where.OR) {
-          // Combine text search OR with ingredient AND
-          where.AND = ingredientConditions;
-        } else {
-          where.AND = ingredientConditions;
-        }
-        delete where.ingredients;
+        const prevAnd = where.AND;
+        const andArray = Array.isArray(prevAnd) ? [...prevAnd] : prevAnd ? [prevAnd] : [];
+        where.AND = [...andArray, ...ingredientClauses];
       }
     }
 

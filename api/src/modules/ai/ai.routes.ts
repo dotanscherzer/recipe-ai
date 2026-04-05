@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth';
+import { asyncHandler } from '../../middleware/asyncHandler';
 import { validate } from '../../middleware/validate';
 import {
   generateSchema,
@@ -15,11 +16,11 @@ const router = Router();
 
 router.use(authenticate);
 
-router.post('/generate', validate(generateSchema), generate);
-router.post('/modify', validate(modifySchema), modify);
-router.post('/import-text', validate(importTextSchema), importText);
-router.post('/import-url', validate(importUrlSchema), importUrl);
-router.post('/import-image', validate(importImageSchema), importImage);
-router.post('/chat', validate(chatSchema), chat);
+router.post('/generate', validate(generateSchema), asyncHandler(generate));
+router.post('/modify', validate(modifySchema), asyncHandler(modify));
+router.post('/import-text', validate(importTextSchema), asyncHandler(importText));
+router.post('/import-url', validate(importUrlSchema), asyncHandler(importUrl));
+router.post('/import-image', validate(importImageSchema), asyncHandler(importImage));
+router.post('/chat', validate(chatSchema), asyncHandler(chat));
 
 export default router;

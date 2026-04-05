@@ -1,3 +1,4 @@
+import path from 'path';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from './env';
@@ -14,7 +15,8 @@ export const s3 = new S3Client({
 });
 
 export async function getUploadUrl(folder: string, filename: string, contentType: string) {
-  const key = `${folder}/${uuid()}-${filename}`;
+  const base = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, '_') || 'upload';
+  const key = `${folder}/${uuid()}-${base}`;
   const command = new PutObjectCommand({
     Bucket: env.S3_BUCKET,
     Key: key,

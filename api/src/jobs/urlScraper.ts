@@ -2,6 +2,8 @@ import { Queue, Worker } from 'bullmq';
 import { redis } from '../config/redis';
 import { env } from '../config/env';
 import * as cheerio from 'cheerio';
+import { parseJsonFromAiText } from '../lib/parseAiJson';
+import { assertSafeHttpsUrl } from '../lib/safeUrl';
 import { TEXT_IMPORT_PROMPT } from '../modules/ai/ai.prompts';
 
 interface UrlScraperJobData {
@@ -33,7 +35,8 @@ export function startUrlScraperWorker() {
       const { url } = job.data;
 
       try {
-        // Fetch and parse HTML
+        assertSafeHttpsUrl(url);
+
         const response = await fetch(url, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (compatible; RecipeAI/1.0)',
@@ -73,10 +76,15 @@ export function startUrlScraperWorker() {
           ],
         });
 
-        const responseText =
-          message.content[0].type === 'text' ? message.content[0].text : '';
+        let responseText = '';
+        for (const block of message.content) {
+          if (block.type === 'text' && 'text' in block) {
+            responseText = block.text;
+            break;
+          }
+        }
 
-        const recipe: ScrapedRecipe = JSON.parse(responseText);
+        const recipe = parseJsonFromAiText(responseText) as ScrapedRecipe;
         return { success: true, recipe };
       } catch (error) {
         console.error(`URL scraping failed for ${url}:`, error);
