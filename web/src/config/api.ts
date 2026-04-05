@@ -100,6 +100,10 @@ function getToken() {
 
 // API helpers
 export const authApi = {
+  forgotPassword: (data: { email: string }) =>
+    api<{ message: string }>('/auth/forgot-password', { method: 'POST', body: JSON.stringify(data) }),
+  resetPassword: (data: { token: string; newPassword: string }) =>
+    api<{ message: string }>('/auth/reset-password', { method: 'POST', body: JSON.stringify(data) }),
   register: (data: { fullName: string; email: string; password: string }) =>
     api<{ accessToken: string; refreshToken: string; user: any }>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
   login: (data: { email: string; password: string }) =>

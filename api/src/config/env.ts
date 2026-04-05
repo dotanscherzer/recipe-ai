@@ -34,6 +34,13 @@ const envSchema = z.object({
 
   APP_URL: z.string().default('http://localhost:5173'),
   API_URL: z.string().default('http://localhost:3001'),
+
+  /** Optional SMTP for password-reset emails (Hostinger etc. often provide these). */
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.string().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

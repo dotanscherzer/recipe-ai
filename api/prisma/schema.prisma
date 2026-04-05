@@ -31,10 +31,23 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  sessions     Session[]
-  recipes      Recipe[]
-  savedRecipes SavedRecipe[]
-  categories   Category[]
+  sessions            Session[]
+  recipes             Recipe[]
+  savedRecipes        SavedRecipe[]
+  categories          Category[]
+  passwordResetTokens PasswordResetToken[]
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Session {

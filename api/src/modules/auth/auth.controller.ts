@@ -1,3 +1,4 @@
+import { randomBytes, createHash } from 'crypto';
 import { Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -5,6 +6,7 @@ import { env } from '../../config/env';
 import { prisma } from '../../config/db';
 import { AuthRequest } from '../../middleware/auth';
 import { AppError } from '../../middleware/errorHandler';
+import { sendPasswordResetEmail } from '../../lib/mail';
 
 function generateAccessToken(userId: string): string {
   return jwt.sign({ userId }, env.JWT_ACCESS_SECRET, {
@@ -26,6 +28,73 @@ function parseExpiry(expiry: string): Date {
   const unit = match[2];
   const ms = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[unit]!;
   return new Date(Date.now() + value * ms);
+}
+
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function hashResetToken(token: string): string {
+  return createHash('sha256').update(token, 'utf8').digest('hex');
+}
+
+/** Same response whether or not the email exists (avoid account enumeration). */
+export async function forgotPassword(req: AuthRequest, res: Response) {
+  const { email } = req.body;
+  const okMessage = {
+    message:
+      'If an account exists for this email, we sent password reset instructions.',
+  };
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user?.passwordHash) {
+    res.json(okMessage);
+    return;
+  }
+
+  await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+
+  const rawToken = randomBytes(32).toString('base64url');
+  const tokenHash = hashResetToken(rawToken);
+
+  await prisma.passwordResetToken.create({
+    data: {
+      userId: user.id,
+      tokenHash,
+      expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+    },
+  });
+
+  const base = env.APP_URL.replace(/\/$/, '');
+  const resetUrl = `${base}/reset-password?token=${encodeURIComponent(rawToken)}`;
+
+  await sendPasswordResetEmail(user.email, resetUrl);
+
+  res.json(okMessage);
+}
+
+export async function resetPassword(req: AuthRequest, res: Response) {
+  const { token, newPassword } = req.body;
+  const tokenHash = hashResetToken(token);
+
+  const row = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+  });
+
+  if (!row || row.expiresAt < new Date()) {
+    throw new AppError(400, 'Invalid or expired reset link');
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: row.userId },
+      data: { passwordHash },
+    }),
+    prisma.passwordResetToken.delete({ where: { id: row.id } }),
+    prisma.session.deleteMany({ where: { userId: row.userId } }),
+  ]);
+
+  res.json({ message: 'Password updated successfully' });
 }
 
 export async function register(req: AuthRequest, res: Response) {
