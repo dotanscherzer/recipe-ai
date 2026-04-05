@@ -44,6 +44,9 @@ export function useSearchRecipes(params: Record<string, string>) {
   return useQuery({
     queryKey: ['recipes', 'search', params],
     queryFn: () => recipesApi.search(params),
-    enabled: Object.values(params).some(v => v.length > 0),
+    enabled: Object.values(params).some((v) => v.length > 0),
+    retry: 1,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 }

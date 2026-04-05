@@ -13,12 +13,18 @@ type Tab = 'keyword' | 'ingredients' | 'import';
 export default function Search() {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<Tab>('keyword');
-  const [query, setQuery] = useState('');
+  /** Committed query sent to API (avoid a request per keystroke → fewer 504s/timeouts). */
+  const [keywordInput, setKeywordInput] = useState('');
+  const [keywordQuery, setKeywordQuery] = useState('');
   const [ingredients, setIngredients] = useState('');
   const [importText, setImportText] = useState('');
   const [importUrl, setImportUrl] = useState('');
 
-  const searchResults = useSearchRecipes({ q: query });
+  const searchResults = useSearchRecipes({ q: keywordQuery });
+
+  const runKeywordSearch = () => {
+    setKeywordQuery(keywordInput.trim());
+  };
   const aiGenerate = useAiGenerate();
   const aiImportText = useAiImportText();
   const aiImportUrl = useAiImportUrl();
@@ -49,26 +55,53 @@ export default function Search() {
 
       {activeTab === 'keyword' && (
         <div>
-          <div className="relative mb-6">
-            <SearchIcon size={20} className="absolute start-4 top-1/2 -translate-y-1/2 text-stone-400" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t('search.placeholder')}
-              className="w-full ps-12 pe-4 py-3 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
-            />
+          <p className="text-sm text-stone-500 mb-3">{t('search.keywordHint')}</p>
+          <div className="flex flex-col sm:flex-row gap-2 mb-4">
+            <div className="relative flex-1">
+              <SearchIcon size={20} className="absolute start-4 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+              <input
+                type="search"
+                value={keywordInput}
+                onChange={(e) => setKeywordInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    runKeywordSearch();
+                  }
+                }}
+                placeholder={t('search.placeholder')}
+                className="w-full ps-12 pe-4 py-3 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={runKeywordSearch}
+              disabled={searchResults.isFetching}
+              className="px-6 py-3 bg-primary text-white rounded-xl font-medium hover:bg-primary-700 transition-colors disabled:opacity-50 shrink-0"
+            >
+              {searchResults.isFetching ? t('search.searching') : t('search.runSearch')}
+            </button>
           </div>
+
+          {searchResults.isError && (
+            <p className="text-sm text-red-600 mb-4" role="alert">
+              {t('search.errorGeneric')}
+            </p>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {searchResults.isLoading
+            {searchResults.isFetching
               ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
               : searchResults.data?.recipes?.map((recipe: any) => (
                   <RecipeCard key={recipe.id} recipe={recipe} />
                 ))}
           </div>
-          {query && !searchResults.isLoading && !searchResults.data?.recipes?.length && (
-            <EmptyState icon={SearchIcon} title={t('search.noResults')} />
-          )}
+          {keywordQuery &&
+            !searchResults.isFetching &&
+            !searchResults.isError &&
+            !searchResults.data?.recipes?.length && (
+              <EmptyState icon={SearchIcon} title={t('search.noResults')} />
+            )}
         </div>
       )}
 
