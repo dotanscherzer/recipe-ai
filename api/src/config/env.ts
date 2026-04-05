@@ -41,6 +41,11 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().optional(),
+
+  /** Optional: transactional email over HTTPS (works when VPS blocks SMTP). https://resend.com */
+  RESEND_API_KEY: z.string().optional(),
+  /** Verified sender in Resend, e.g. Recipe AI <onboarding@resend.dev> or your domain */
+  RESEND_FROM: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

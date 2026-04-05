@@ -1,10 +1,47 @@
 import nodemailer from 'nodemailer';
 import { env } from '../config/env';
 
-function smtpConfigured(): boolean {
+function useResend(): boolean {
+  return Boolean(env.RESEND_API_KEY && env.RESEND_FROM);
+}
+
+function useSmtp(): boolean {
   return Boolean(
     env.SMTP_HOST && env.SMTP_PORT && env.SMTP_FROM && env.SMTP_USER && env.SMTP_PASS,
   );
+}
+
+async function sendViaResend(
+  to: string,
+  subject: string,
+  text: string,
+  html: string,
+): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: env.RESEND_FROM,
+        to: [to],
+        subject,
+        text,
+        html,
+      }),
+    });
+    if (!res.ok) {
+      const errBody = await res.text();
+      throw new Error(`Resend HTTP ${res.status}: ${errBody}`);
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
@@ -15,17 +52,23 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string): Prom
     `Reset your Recipe AI password (link valid 1 hour):\n${resetUrl}\n`;
   const html = `<p>שלום,</p><p><a href="${resetUrl}">לחצו כאן לאיפוס הסיסמה</a> (תוקף: שעה אחת)</p><p>אם לא ביקשתם איפוס — התעלמו מהודעה זו.</p><hr/><p><a href="${resetUrl}">Reset your Recipe AI password</a> (valid 1 hour)</p>`;
 
-  if (!smtpConfigured()) {
+  if (!useResend() && !useSmtp()) {
     if (env.NODE_ENV === 'development') {
-      console.log('[mail] Password reset link (SMTP not configured):', resetUrl);
+      console.log('[mail] Password reset link (no mail transport):', resetUrl);
     } else {
-      console.warn('[mail] SMTP not configured — password reset email was NOT sent');
+      console.warn(
+        '[mail] No RESEND_* or SMTP_* — password reset email was NOT sent',
+      );
     }
     return;
   }
 
+  if (useResend()) {
+    await sendViaResend(to, subject, text, html);
+    return;
+  }
+
   const port = parseInt(env.SMTP_PORT!, 10);
-  // smtp-connection supports extra fields (family, timeouts) not in @types/nodemailer
   const transporter = nodemailer.createTransport({
     host: env.SMTP_HOST,
     port,

@@ -70,11 +70,13 @@ export default function ForgotPassword() {
           </form>
         )}
 
-        <div className="mt-6 text-center">
-          <Link to="/login" className="text-sm text-primary font-medium hover:underline">
-            {t('auth.backToLogin')}
-          </Link>
-        </div>
+        {!sent && (
+          <div className="mt-6 text-center">
+            <Link to="/login" className="text-sm text-primary font-medium hover:underline">
+              {t('auth.backToLogin')}
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );
