@@ -21,7 +21,17 @@ const envSchema = z.object({
   S3_BUCKET: z.string().default('recipe-ai'),
   S3_REGION: z.string().default('us-east-1'),
 
-  ANTHROPIC_API_KEY: z.string().optional(),
+  /** OpenAI — default path (`automatic` → gpt-4o-mini) */
+  OPENAI_API_KEY: z.string().optional(),
+  /** Google AI Studio / Gemini — required when using internet context or Gemini models */
+  GOOGLE_AI_API_KEY: z.string().optional(),
+  /** Internal aliases → real Gemini API model ids (override when Google renames models) */
+  GEMINI_MODEL_FLASH: z.string().default('gemini-2.0-flash'),
+  GEMINI_MODEL_PRO: z.string().default('gemini-1.5-pro'),
+  /** When `add_context_from_internet` and text length >= threshold, prefer Pro (unless LLM_INTERNET_PREFER locks flash) */
+  LLM_INTERNET_USE_PRO_THRESHOLD: z.coerce.number().int().positive().default(12000),
+  LLM_INTERNET_PREFER: z.enum(['flash', 'pro']).default('flash'),
+
   UNSPLASH_ACCESS_KEY: z.string().optional(),
 
   GOOGLE_CLIENT_ID: z.string().optional(),

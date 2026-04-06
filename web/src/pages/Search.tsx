@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 import { Search as SearchIcon, ChefHat, Link as LinkIcon, Image, FileText } from 'lucide-react';
 import { useSearchRecipes } from '../hooks/useRecipes';
 import { useAiGenerate, useAiImportText, useAiImportUrl } from '../hooks/useAiChef';
@@ -7,11 +9,16 @@ import RecipeCard from '../components/common/RecipeCard';
 import SkeletonCard from '../components/common/SkeletonCard';
 import EmptyState from '../components/common/EmptyState';
 import { cn } from '../lib/utils';
+import { useAuthStore } from '../store/authStore';
+import { aiApi, recipesApi } from '../config/api';
+import { normalizeAiRecipeForCreate } from '../lib/normalizeAiRecipeForCreate';
 
 type Tab = 'keyword' | 'ingredients' | 'import';
 
 export default function Search() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const [activeTab, setActiveTab] = useState<Tab>('keyword');
   /** Committed query sent to API (avoid a request per keystroke → fewer 504s/timeouts). */
   const [keywordInput, setKeywordInput] = useState('');
@@ -19,15 +26,90 @@ export default function Search() {
   const [ingredients, setIngredients] = useState('');
   const [importText, setImportText] = useState('');
   const [importUrl, setImportUrl] = useState('');
+  const [chefGenerating, setChefGenerating] = useState(false);
+  const [chefError, setChefError] = useState(false);
+  const [chefErrorMessage, setChefErrorMessage] = useState<string | null>(null);
+  const [chefAttemptKey, setChefAttemptKey] = useState(0);
+  const chefRunIdRef = useRef(0);
 
   const searchResults = useSearchRecipes({ q: keywordQuery });
 
   const runKeywordSearch = () => {
+    setChefError(false);
+    setChefErrorMessage(null);
     setKeywordQuery(keywordInput.trim());
   };
   const aiGenerate = useAiGenerate();
   const aiImportText = useAiImportText();
   const aiImportUrl = useAiImportUrl();
+
+  useEffect(() => {
+    if (!keywordQuery || !searchResults.isSuccess || searchResults.isFetching || searchResults.isError) {
+      return;
+    }
+    const recipes = searchResults.data?.recipes ?? [];
+    if (recipes.length > 0 || !isAuthenticated) {
+      return;
+    }
+
+    const runId = ++chefRunIdRef.current;
+    let cancelled = false;
+    setChefGenerating(true);
+    setChefError(false);
+
+    (async () => {
+      try {
+        const { recipe } = await aiApi.generate({
+          prompt: `Create one complete, practical home-cooking recipe that matches this search: "${keywordQuery}". Prefer titles and instructions in the same language as the search text when it is not English.`,
+        });
+        const body = normalizeAiRecipeForCreate(recipe as Record<string, unknown>);
+        if (body.ingredients.length < 1 || body.steps.length < 1) {
+          throw new Error('Invalid recipe shape');
+        }
+        const saved = await recipesApi.create({
+          ...body,
+          isAiGenerated: true,
+          isPublic: true,
+        });
+        if (cancelled || runId !== chefRunIdRef.current) return;
+        queryClient.setQueryData(['recipes', 'search', { q: keywordQuery }], {
+          recipes: [saved],
+          total: 1,
+        });
+        queryClient.invalidateQueries({ queryKey: ['recipes'] });
+      } catch (e) {
+        if (!cancelled && runId === chefRunIdRef.current) {
+          setChefError(true);
+          setChefErrorMessage(e instanceof Error ? e.message : null);
+        }
+      } finally {
+        if (!cancelled && runId === chefRunIdRef.current) {
+          setChefGenerating(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    keywordQuery,
+    isAuthenticated,
+    searchResults.isSuccess,
+    searchResults.isFetching,
+    searchResults.isError,
+    searchResults.data?.recipes,
+    queryClient,
+    chefAttemptKey,
+  ]);
+
+  useEffect(() => {
+    if (!keywordQuery) {
+      setChefGenerating(false);
+      setChefError(false);
+      setChefErrorMessage(null);
+    }
+  }, [keywordQuery]);
 
   const tabs: { key: Tab; label: string; icon: any }[] = [
     { key: 'keyword', label: t('search.byKeyword'), icon: SearchIcon },
@@ -76,10 +158,14 @@ export default function Search() {
             <button
               type="button"
               onClick={runKeywordSearch}
-              disabled={searchResults.isFetching}
+              disabled={searchResults.isFetching || chefGenerating}
               className="px-6 py-3 bg-primary text-white rounded-xl font-medium hover:bg-primary-700 transition-colors disabled:opacity-50 shrink-0"
             >
-              {searchResults.isFetching ? t('search.searching') : t('search.runSearch')}
+              {searchResults.isFetching
+                ? t('search.searching')
+                : chefGenerating
+                  ? t('ai.generating')
+                  : t('search.runSearch')}
             </button>
           </div>
 
@@ -89,8 +175,15 @@ export default function Search() {
             </p>
           )}
 
+          {chefGenerating && (
+            <p className="text-sm text-stone-600 mb-4 flex items-center gap-2" role="status">
+              <span className="inline-block size-2 rounded-full bg-primary animate-pulse" aria-hidden />
+              {t('search.chefCreatingFromSearch')}
+            </p>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {searchResults.isFetching
+            {searchResults.isFetching || chefGenerating
               ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
               : searchResults.data?.recipes?.map((recipe: any) => (
                   <RecipeCard key={recipe.id} recipe={recipe} />
@@ -98,9 +191,49 @@ export default function Search() {
           </div>
           {keywordQuery &&
             !searchResults.isFetching &&
+            !chefGenerating &&
             !searchResults.isError &&
-            !searchResults.data?.recipes?.length && (
-              <EmptyState icon={SearchIcon} title={t('search.noResults')} />
+            !searchResults.data?.recipes?.length &&
+            !isAuthenticated && (
+              <div className="mt-8 text-center space-y-3">
+                <EmptyState icon={SearchIcon} title={t('search.noResults')} />
+                <p className="text-sm text-stone-600 max-w-md mx-auto">{t('search.loginToGenerate')}</p>
+                <Link
+                  to="/login"
+                  className="inline-block text-primary font-medium hover:underline"
+                >
+                  {t('nav.login')}
+                </Link>
+              </div>
+            )}
+          {keywordQuery &&
+            !searchResults.isFetching &&
+            !chefGenerating &&
+            !searchResults.isError &&
+            !searchResults.data?.recipes?.length &&
+            isAuthenticated &&
+            chefError && (
+              <div className="mt-8 text-center space-y-3">
+                <p className="text-sm text-red-600" role="alert">
+                  {t('search.chefCreateFailed')}
+                </p>
+                {chefErrorMessage && (
+                  <p className="text-xs text-stone-500 max-w-lg mx-auto break-words" role="status">
+                    {chefErrorMessage}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChefError(false);
+                    setChefErrorMessage(null);
+                    setChefAttemptKey((k) => k + 1);
+                  }}
+                  className="text-primary font-medium text-sm hover:underline"
+                >
+                  {t('search.retrySearch')}
+                </button>
+              </div>
             )}
         </div>
       )}

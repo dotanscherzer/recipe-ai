@@ -1,9 +1,9 @@
 import { Queue, Worker } from 'bullmq';
 import { redis } from '../config/redis';
-import { env } from '../config/env';
 import * as cheerio from 'cheerio';
 import { parseJsonFromAiText } from '../lib/parseAiJson';
 import { assertSafeHttpsUrl } from '../lib/safeUrl';
+import { invokeLLM } from '../lib/invokeLLM';
 import { TEXT_IMPORT_PROMPT } from '../modules/ai/ai.prompts';
 
 interface UrlScraperJobData {
@@ -56,17 +56,7 @@ export function startUrlScraperWorker() {
         // Extract main content
         const text = $('body').text().replace(/\s+/g, ' ').trim().slice(0, 8000);
 
-        if (!env.ANTHROPIC_API_KEY) {
-          throw new Error('ANTHROPIC_API_KEY is not configured');
-        }
-
-        // Send to Claude for parsing
-        const Anthropic = (await import('@anthropic-ai/sdk')).default;
-        const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-
-        const message = await anthropic.messages.create({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4000,
+        const responseText = await invokeLLM({
           system: TEXT_IMPORT_PROMPT,
           messages: [
             {
@@ -74,15 +64,9 @@ export function startUrlScraperWorker() {
               content: `Extract the recipe from this webpage content:\n\n${text}`,
             },
           ],
+          add_context_from_internet: true,
+          internetContextLength: text.length,
         });
-
-        let responseText = '';
-        for (const block of message.content) {
-          if (block.type === 'text' && 'text' in block) {
-            responseText = block.text;
-            break;
-          }
-        }
 
         const recipe = parseJsonFromAiText(responseText) as ScrapedRecipe;
         return { success: true, recipe };
@@ -93,16 +77,16 @@ export function startUrlScraperWorker() {
     },
     {
       connection: redis,
-      concurrency: 3,
+      concurrency: 2,
     }
   );
 
   worker.on('completed', (job) => {
-    console.log(`URL scraped successfully: ${job.data.url}`);
+    console.log(`URL scrape completed for ${job.data.url}`);
   });
 
   worker.on('failed', (job, err) => {
-    console.error(`URL scraping failed for ${job?.data.url}:`, err.message);
+    console.error(`URL scrape failed for ${job?.data.url}:`, err.message);
   });
 
   return worker;

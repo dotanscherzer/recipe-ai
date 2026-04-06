@@ -187,9 +187,11 @@ export async function searchRecipes(req: AuthRequest, res: Response, next: NextF
     const where: Record<string, unknown> = { isPublic: true };
 
     if (searchQ) {
+      // Match title/description and ingredient names (stored as JSON); keyword-only search used to miss many recipes.
       where.OR = [
         { title: { contains: searchQ, mode: 'insensitive' } },
         { description: { contains: searchQ, mode: 'insensitive' } },
+        { ingredients: { string_contains: searchQ, mode: 'insensitive' } },
       ];
     }
 

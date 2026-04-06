@@ -21,6 +21,8 @@ const app = express();
 
 // Trust proxy (Traefik reverse proxy sends X-Forwarded-For)
 app.set('trust proxy', 1);
+// Avoid 304 + empty body on JSON fetches (breaks clients that call response.json()).
+app.set('etag', false);
 
 // Middleware
 app.use(cors({
@@ -32,6 +34,11 @@ app.use(cors({
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
+
+app.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  next();
+});
 
 // Health check
 app.get('/health', (_req, res) => {

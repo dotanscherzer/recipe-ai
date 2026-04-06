@@ -1,10 +1,10 @@
 import { Response } from 'express';
-import { env } from '../../config/env';
 import { prisma } from '../../config/db';
 import { AuthRequest } from '../../middleware/auth';
 import { AppError } from '../../middleware/errorHandler';
 import { parseJsonFromAiText } from '../../lib/parseAiJson';
 import { assertSafeHttpsUrl, fetchTextFromSafeUrl } from '../../lib/safeUrl';
+import { invokeLLM } from '../../lib/invokeLLM';
 import {
   RECIPE_GENERATION_PROMPT,
   RECIPE_MODIFICATION_PROMPT,
@@ -12,18 +12,6 @@ import {
   IMAGE_IMPORT_PROMPT,
   CHAT_PROMPT,
 } from './ai.prompts';
-
-function requireAnthropicKey(): string {
-  if (!env.ANTHROPIC_API_KEY) {
-    throw new AppError(503, 'AI service is not configured');
-  }
-  return env.ANTHROPIC_API_KEY;
-}
-
-async function getAnthropicClient() {
-  const Anthropic = (await import('@anthropic-ai/sdk')).default;
-  return new Anthropic({ apiKey: requireAnthropicKey() });
-}
 
 function parseJsonResponse(text: string) {
   try {
@@ -33,17 +21,8 @@ function parseJsonResponse(text: string) {
   }
 }
 
-function getFirstTextFromContent(content: { type: string; text?: string }[]): string {
-  for (const block of content) {
-    if (block.type === 'text' && typeof block.text === 'string') {
-      return block.text;
-    }
-  }
-  return '';
-}
-
 export async function generate(req: AuthRequest, res: Response) {
-  const { prompt, cuisine, difficulty, servings, dietaryRestrictions } = req.body;
+  const { prompt, cuisine, difficulty, servings, dietaryRestrictions, model } = req.body;
 
   let userMessage = prompt;
   if (cuisine) userMessage += `\nCuisine: ${cuisine}`;
@@ -53,25 +32,19 @@ export async function generate(req: AuthRequest, res: Response) {
     userMessage += `\nDietary restrictions: ${dietaryRestrictions.join(', ')}`;
   }
 
-  const anthropic = await getAnthropicClient();
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
+  const text = await invokeLLM({
     system: RECIPE_GENERATION_PROMPT,
     messages: [{ role: 'user', content: userMessage }],
+    model,
   });
 
-  const text = getFirstTextFromContent(message.content as { type: string; text?: string }[]);
-  if (!text) {
-    throw new AppError(502, 'AI returned no text response');
-  }
   const recipe = parseJsonResponse(text);
 
   res.json({ recipe });
 }
 
 export async function modify(req: AuthRequest, res: Response) {
-  const { recipeId, modification } = req.body;
+  const { recipeId, modification, model } = req.body;
 
   const recipe = await prisma.recipe.findUnique({ where: { id: recipeId } });
   if (!recipe) {
@@ -82,10 +55,7 @@ export async function modify(req: AuthRequest, res: Response) {
     throw new AppError(403, 'You do not have permission to modify this recipe');
   }
 
-  const anthropic = await getAnthropicClient();
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
+  const text = await invokeLLM({
     system: RECIPE_MODIFICATION_PROMPT,
     messages: [
       {
@@ -93,39 +63,30 @@ export async function modify(req: AuthRequest, res: Response) {
         content: `Original recipe:\n${JSON.stringify(recipe, null, 2)}\n\nRequested modification: ${modification}`,
       },
     ],
+    model,
   });
 
-  const text = getFirstTextFromContent(message.content as { type: string; text?: string }[]);
-  if (!text) {
-    throw new AppError(502, 'AI returned no text response');
-  }
   const modifiedRecipe = parseJsonResponse(text);
 
   res.json({ recipe: modifiedRecipe });
 }
 
 export async function importText(req: AuthRequest, res: Response) {
-  const { text: recipeText } = req.body;
+  const { text: recipeText, model } = req.body;
 
-  const anthropic = await getAnthropicClient();
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
+  const text = await invokeLLM({
     system: TEXT_IMPORT_PROMPT,
     messages: [{ role: 'user', content: recipeText }],
+    model,
   });
 
-  const text = getFirstTextFromContent(message.content as { type: string; text?: string }[]);
-  if (!text) {
-    throw new AppError(502, 'AI returned no text response');
-  }
   const recipe = parseJsonResponse(text);
 
   res.json({ recipe });
 }
 
 export async function importUrl(req: AuthRequest, res: Response) {
-  const { url } = req.body;
+  const { url, model } = req.body;
 
   const html = await fetchTextFromSafeUrl(url);
   const cheerio = await import('cheerio');
@@ -137,64 +98,41 @@ export async function importUrl(req: AuthRequest, res: Response) {
     throw new AppError(400, 'No text content found at the provided URL');
   }
 
-  const anthropic = await getAnthropicClient();
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
+  const text = await invokeLLM({
     system: TEXT_IMPORT_PROMPT,
     messages: [{ role: 'user', content: pageText }],
+    model,
+    add_context_from_internet: true,
+    internetContextLength: pageText.length,
   });
 
-  const text = getFirstTextFromContent(message.content as { type: string; text?: string }[]);
-  if (!text) {
-    throw new AppError(502, 'AI returned no text response');
-  }
   const recipe = parseJsonResponse(text);
 
   res.json({ recipe });
 }
 
 export async function importImage(req: AuthRequest, res: Response) {
-  const { imageUrl } = req.body;
+  const { imageUrl, model } = req.body;
 
   assertSafeHttpsUrl(imageUrl);
 
-  const anthropic = await getAnthropicClient();
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
+  const text = await invokeLLM({
     system: IMAGE_IMPORT_PROMPT,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: {
-              type: 'url',
-              url: imageUrl,
-            },
-          },
-          {
-            type: 'text',
-            text: 'Extract the recipe from this image.',
-          },
-        ],
-      },
-    ],
+    messages: [],
+    model,
+    vision: {
+      imageUrl,
+      text: 'Extract the recipe from this image.',
+    },
   });
 
-  const text = getFirstTextFromContent(message.content as { type: string; text?: string }[]);
-  if (!text) {
-    throw new AppError(502, 'AI returned no text response');
-  }
   const recipe = parseJsonResponse(text);
 
   res.json({ recipe });
 }
 
 export async function chat(req: AuthRequest, res: Response) {
-  const { recipeId, message: userMessage, history } = req.body;
+  const { recipeId, message: userMessage, history, model } = req.body;
 
   let systemPrompt = CHAT_PROMPT;
 
@@ -217,18 +155,11 @@ export async function chat(req: AuthRequest, res: Response) {
   }
   messages.push({ role: 'user', content: userMessage });
 
-  const anthropic = await getAnthropicClient();
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
+  const text = await invokeLLM({
     system: systemPrompt,
     messages,
+    model,
   });
-
-  const text = getFirstTextFromContent(response.content as { type: string; text?: string }[]);
-  if (!text) {
-    throw new AppError(502, 'AI returned no text response');
-  }
 
   res.json({ message: text });
 }

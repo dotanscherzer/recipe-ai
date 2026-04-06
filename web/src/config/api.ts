@@ -61,27 +61,38 @@ function unwrapNamedArray<T>(body: unknown, key: string): T[] {
   return Array.isArray(v) ? (v as T[]) : [];
 }
 
+/** Single in-flight refresh — parallel 401s would rotate refresh twice and invalidate the session. */
+let refreshInFlight: Promise<boolean> | null = null;
+
 async function refreshTokens(): Promise<boolean> {
-  try {
-    const refreshToken = localStorage.getItem(REFRESH_KEY);
-    if (!refreshToken) return false;
-    const response = await fetch(`${API_URL}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
-    if (!response.ok) {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    try {
+      const refreshToken = localStorage.getItem(REFRESH_KEY);
+      if (!refreshToken) return false;
+      const response = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!response.ok) {
+        clearTokens();
+        return false;
+      }
+      const data = await response.json();
+      localStorage.setItem(TOKEN_KEY, data.accessToken);
+      localStorage.setItem(REFRESH_KEY, data.refreshToken);
+      return true;
+    } catch {
       clearTokens();
       return false;
+    } finally {
+      refreshInFlight = null;
     }
-    const data = await response.json();
-    localStorage.setItem(TOKEN_KEY, data.accessToken);
-    localStorage.setItem(REFRESH_KEY, data.refreshToken);
-    return true;
-  } catch {
-    clearTokens();
-    return false;
-  }
+  })();
+
+  return refreshInFlight;
 }
 
 function setTokens(accessToken: string, refreshToken: string) {
