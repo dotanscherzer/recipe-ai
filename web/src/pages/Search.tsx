@@ -35,9 +35,18 @@ export default function Search() {
   const searchResults = useSearchRecipes({ q: keywordQuery });
 
   const runKeywordSearch = () => {
+    const nextQuery = keywordInput.trim();
     setChefError(false);
     setChefErrorMessage(null);
-    setKeywordQuery(keywordInput.trim());
+    if (!nextQuery) {
+      setKeywordQuery('');
+      return;
+    }
+    if (nextQuery === keywordQuery) {
+      void searchResults.refetch();
+      return;
+    }
+    setKeywordQuery(nextQuery);
   };
   const aiGenerate = useAiGenerate();
   const aiImportText = useAiImportText();
