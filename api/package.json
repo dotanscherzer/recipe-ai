@@ -12,6 +12,7 @@
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
+    "llm:bakeoff": "tsx scripts/llm-bakeoff.ts",
     "test": "jest --passWithNoTests",
     "lint": "eslint src/"
   },

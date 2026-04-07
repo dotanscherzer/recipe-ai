@@ -21,7 +21,96 @@ export type InvokeLLMOptions = {
 
 type Resolved =
   | { provider: 'openai'; modelId: string }
-  | { provider: 'gemini'; modelId: string };
+  | { provider: 'gemini'; modelId: string }
+  | { provider: 'groq'; modelId: string }
+  | { provider: 'openrouter'; modelId: string };
+
+type ProviderName = Resolved['provider'];
+
+const providerHealth: Record<ProviderName, { success: number; quota429: number; parseFail: number; lastError: string | null }> = {
+  openai: { success: 0, quota429: 0, parseFail: 0, lastError: null },
+  gemini: { success: 0, quota429: 0, parseFail: 0, lastError: null },
+  groq: { success: 0, quota429: 0, parseFail: 0, lastError: null },
+  openrouter: { success: 0, quota429: 0, parseFail: 0, lastError: null },
+};
+
+function maybeLogProviderHealth() {
+  const totals = Object.values(providerHealth).reduce(
+    (acc, row) => acc + row.success + row.quota429 + row.parseFail,
+    0,
+  );
+  if (totals > 0 && totals % 25 === 0) {
+    console.info('[llm-health]', JSON.stringify(getLLMProviderHealth()));
+  }
+}
+
+function markProviderSuccess(provider: ProviderName) {
+  providerHealth[provider].success += 1;
+  maybeLogProviderHealth();
+}
+
+function markProviderError(provider: ProviderName, err: unknown) {
+  const message = String((err as { message?: unknown })?.message ?? 'unknown error');
+  providerHealth[provider].lastError = message;
+  if (isQuotaOrRateLimited(err)) {
+    providerHealth[provider].quota429 += 1;
+  } else {
+    providerHealth[provider].parseFail += 1;
+  }
+  maybeLogProviderHealth();
+}
+
+export function getLLMProviderHealth() {
+  return {
+    timestamp: new Date().toISOString(),
+    ...providerHealth,
+  };
+}
+
+function parseProviderList(raw: string): ProviderName[] {
+  const allowed: ProviderName[] = ['openai', 'gemini', 'groq', 'openrouter'];
+  return raw
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter((v): v is ProviderName => allowed.includes(v as ProviderName));
+}
+
+function getConfiguredProviderChain(opts: InvokeLLMOptions): ProviderName[] {
+  if (opts.add_context_from_internet) {
+    const chain = ['gemini', ...parseProviderList(env.LLM_FALLBACK_PROVIDERS)];
+    return Array.from(new Set(chain)) as ProviderName[];
+  }
+  const chain = [env.LLM_DEFAULT_PROVIDER, ...parseProviderList(env.LLM_FALLBACK_PROVIDERS)];
+  return Array.from(new Set(chain)) as ProviderName[];
+}
+
+function hasProviderCredentials(provider: ProviderName): boolean {
+  if (provider === 'openai') return Boolean(env.OPENAI_API_KEY);
+  if (provider === 'gemini') return Boolean(env.GOOGLE_AI_API_KEY);
+  if (provider === 'groq') return Boolean(env.GROQ_API_KEY);
+  return Boolean(env.OPENROUTER_API_KEY);
+}
+
+function providerFromExplicitModel(explicit: string): Resolved | null {
+  const lower = explicit.toLowerCase();
+  if (lower === 'gemini_3_flash') return { provider: 'gemini', modelId: env.GEMINI_MODEL_FLASH };
+  if (lower === 'gemini_3_1_pro') return { provider: 'gemini', modelId: env.GEMINI_MODEL_PRO };
+  if (lower === 'gemini_flash_lite') return { provider: 'gemini', modelId: env.GEMINI_MODEL_FLASH_LITE };
+  if (lower === 'groq_quality') return { provider: 'groq', modelId: env.GROQ_MODEL_DEFAULT };
+  if (lower === 'groq_fast') return { provider: 'groq', modelId: env.GROQ_MODEL_FAST };
+  if (lower === 'openrouter_free') return { provider: 'openrouter', modelId: env.OPENROUTER_MODEL_DEFAULT };
+  if (lower.startsWith('gemini')) return { provider: 'gemini', modelId: explicit };
+  if (lower.startsWith('gpt-') || lower.startsWith('o1') || lower.startsWith('o3') || lower.startsWith('chatgpt-')) {
+    return { provider: 'openai', modelId: explicit };
+  }
+  if (lower.startsWith('llama') || lower.startsWith('mixtral') || lower.startsWith('qwen')) {
+    return { provider: 'groq', modelId: explicit };
+  }
+  if (explicit.includes('/')) {
+    return { provider: 'openrouter', modelId: explicit };
+  }
+  return null;
+}
 
 function isQuotaOrRateLimited(err: unknown): boolean {
   const code = (err as { code?: unknown })?.code;
@@ -51,25 +140,9 @@ export function resolveLLMModel(opts: InvokeLLMOptions): Resolved {
   const explicit = opts.model?.trim();
 
   if (explicit && explicit.toLowerCase() !== 'automatic') {
-    const lower = explicit.toLowerCase();
-    if (lower === 'gemini_3_flash') {
-      return { provider: 'gemini', modelId: env.GEMINI_MODEL_FLASH };
-    }
-    if (lower === 'gemini_3_1_pro') {
-      return { provider: 'gemini', modelId: env.GEMINI_MODEL_PRO };
-    }
-    if (lower.startsWith('gemini')) {
-      return { provider: 'gemini', modelId: explicit };
-    }
-    if (
-      lower.startsWith('gpt-') ||
-      lower.startsWith('o1') ||
-      lower.startsWith('o3') ||
-      lower.startsWith('chatgpt-')
-    ) {
-      return { provider: 'openai', modelId: explicit };
-    }
-    throw new AppError(400, `Unsupported model: ${explicit}`);
+    const resolved = providerFromExplicitModel(explicit);
+    if (resolved) return resolved;
+    throw new AppError(400, `Unsupported model: ${explicit}. Try automatic, gemini_flash_lite, groq_quality, groq_fast, or openrouter_free.`);
   }
 
   if (opts.add_context_from_internet) {
@@ -77,7 +150,14 @@ export function resolveLLMModel(opts: InvokeLLMOptions): Resolved {
     return { provider: 'gemini', modelId: pickInternetGeminiModel(len) };
   }
 
-  return { provider: 'openai', modelId: 'gpt-4o-mini' };
+  const preferred = getConfiguredProviderChain(opts).find(hasProviderCredentials);
+  if (!preferred) {
+    throw new AppError(503, 'AI service is not configured (no provider API keys found)');
+  }
+  if (preferred === 'openai') return { provider: 'openai', modelId: env.OPENAI_MODEL_DEFAULT };
+  if (preferred === 'gemini') return { provider: 'gemini', modelId: env.GEMINI_MODEL_FLASH_LITE || env.GEMINI_MODEL_FLASH };
+  if (preferred === 'groq') return { provider: 'groq', modelId: env.GROQ_MODEL_DEFAULT };
+  return { provider: 'openrouter', modelId: env.OPENROUTER_MODEL_DEFAULT };
 }
 
 function requireOpenAI(): OpenAI {
@@ -203,39 +283,137 @@ async function callGemini(resolved: { provider: 'gemini'; modelId: string }, opt
   return text;
 }
 
+async function callGroq(resolved: { provider: 'groq'; modelId: string }, opts: InvokeLLMOptions): Promise<string> {
+  if (!env.GROQ_API_KEY) {
+    throw new AppError(503, 'AI service is not configured (GROQ_API_KEY missing)');
+  }
+  if (opts.vision) {
+    throw new AppError(400, 'Vision is not supported for Groq path in this app');
+  }
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${env.GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: resolved.modelId,
+      temperature: 0.4,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: opts.system },
+        ...opts.messages.map((m) => ({ role: m.role, content: m.content })),
+      ],
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new AppError(response.status, `Groq request failed: ${body || response.statusText}`);
+  }
+  const body = await response.json() as any;
+  const text = body?.choices?.[0]?.message?.content;
+  if (!text || typeof text !== 'string') throw new AppError(502, 'AI returned no text response');
+  return text;
+}
+
+async function callOpenRouter(resolved: { provider: 'openrouter'; modelId: string }, opts: InvokeLLMOptions): Promise<string> {
+  if (!env.OPENROUTER_API_KEY) {
+    throw new AppError(503, 'AI service is not configured (OPENROUTER_API_KEY missing)');
+  }
+  if (opts.vision) {
+    throw new AppError(400, 'Vision is not supported for OpenRouter path in this app');
+  }
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+      'HTTP-Referer': env.APP_URL,
+      'X-Title': 'Recipe AI',
+    },
+    body: JSON.stringify({
+      model: resolved.modelId,
+      temperature: 0.4,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: opts.system },
+        ...opts.messages.map((m) => ({ role: m.role, content: m.content })),
+      ],
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new AppError(response.status, `OpenRouter request failed: ${body || response.statusText}`);
+  }
+  const body = await response.json() as any;
+  const text = body?.choices?.[0]?.message?.content;
+  if (!text || typeof text !== 'string') throw new AppError(502, 'AI returned no text response');
+  return text;
+}
+
+async function callProvider(resolved: Resolved, opts: InvokeLLMOptions): Promise<string> {
+  if (resolved.provider === 'openai') return callOpenAI(resolved, opts);
+  if (resolved.provider === 'gemini') return callGemini(resolved, opts);
+  if (resolved.provider === 'groq') return callGroq(resolved, opts);
+  return callOpenRouter(resolved, opts);
+}
+
 /**
  * Central LLM entry: default `automatic` → OpenAI gpt-4o-mini;
  * `add_context_from_internet` → Gemini (flash/pro by env + content length).
  */
 export async function invokeLLM(opts: InvokeLLMOptions): Promise<string> {
-  const resolved = resolveLLMModel(opts);
-  if (resolved.provider === 'openai') {
+  const explicit = opts.model?.trim();
+  if (explicit && explicit.toLowerCase() !== 'automatic') {
+    const resolved = resolveLLMModel(opts);
     try {
-      return await callOpenAI(resolved, opts);
+      const text = await callProvider(resolved, opts);
+      markProviderSuccess(resolved.provider);
+      return text;
     } catch (err) {
-      // Auto-fallback when OpenAI quota is exhausted/rate-limited and Gemini is configured.
-      if (env.GOOGLE_AI_API_KEY && isQuotaOrRateLimited(err)) {
-        try {
-          return callGemini({ provider: 'gemini', modelId: env.GEMINI_MODEL_FLASH }, opts);
-        } catch (geminiErr) {
-          if (isQuotaOrRateLimited(geminiErr)) {
-            throw new AppError(503, 'AI service is temporarily unavailable (provider quota exceeded). Please try again later.');
-          }
-          throw geminiErr;
-        }
-      }
+      markProviderError(resolved.provider, err);
       if (isQuotaOrRateLimited(err)) {
         throw new AppError(503, 'AI service is temporarily unavailable (provider quota exceeded). Please try again later.');
       }
       throw err;
     }
   }
-  try {
-    return await callGemini(resolved, opts);
-  } catch (err) {
-    if (isQuotaOrRateLimited(err)) {
-      throw new AppError(503, 'AI service is temporarily unavailable (provider quota exceeded). Please try again later.');
-    }
-    throw err;
+
+  const providerChain = getConfiguredProviderChain(opts).filter(hasProviderCredentials);
+  if (providerChain.length === 0) {
+    throw new AppError(503, 'AI service is not configured (no provider API keys found)');
   }
+
+  const attempted: string[] = [];
+  for (const provider of providerChain) {
+    const resolved: Resolved =
+      provider === 'openai'
+        ? { provider, modelId: env.OPENAI_MODEL_DEFAULT }
+        : provider === 'gemini'
+          ? {
+              provider,
+              modelId: opts.add_context_from_internet
+                ? pickInternetGeminiModel(opts.internetContextLength ?? 0)
+                : (env.GEMINI_MODEL_FLASH_LITE || env.GEMINI_MODEL_FLASH),
+            }
+          : provider === 'groq'
+            ? { provider, modelId: env.GROQ_MODEL_DEFAULT }
+            : { provider, modelId: env.OPENROUTER_MODEL_DEFAULT };
+    try {
+      const text = await callProvider(resolved, opts);
+      markProviderSuccess(provider);
+      return text;
+    } catch (err) {
+      markProviderError(provider, err);
+      attempted.push(`${provider}:${String((err as { message?: unknown })?.message ?? 'error')}`);
+      if (!isQuotaOrRateLimited(err)) {
+        throw err;
+      }
+    }
+  }
+
+  throw new AppError(
+    503,
+    `AI service is temporarily unavailable (provider quota exceeded). Tried: ${attempted.map((a) => a.split(':')[0]).join(', ')}.`
+  );
 }

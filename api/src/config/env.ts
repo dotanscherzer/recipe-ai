@@ -23,11 +23,23 @@ const envSchema = z.object({
 
   /** OpenAI — default path (`automatic` → gpt-4o-mini) */
   OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL_DEFAULT: z.string().default('gpt-4o-mini'),
   /** Google AI Studio / Gemini — required when using internet context or Gemini models */
   GOOGLE_AI_API_KEY: z.string().optional(),
   /** Internal aliases → real Gemini API model ids (override when Google renames models) */
   GEMINI_MODEL_FLASH: z.string().default('gemini-2.0-flash'),
   GEMINI_MODEL_PRO: z.string().default('gemini-1.5-pro'),
+  GEMINI_MODEL_FLASH_LITE: z.string().default('gemini-2.5-flash-lite'),
+  /** Groq OpenAI-compatible API (free tier friendly for low traffic). */
+  GROQ_API_KEY: z.string().optional(),
+  GROQ_MODEL_DEFAULT: z.string().default('llama-3.3-70b-versatile'),
+  GROQ_MODEL_FAST: z.string().default('llama-3.1-8b-instant'),
+  /** OpenRouter fallback (free router or specific model). */
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL_DEFAULT: z.string().default('openrouter/free'),
+  /** Routing preferences for automatic mode (comma-separated providers). */
+  LLM_DEFAULT_PROVIDER: z.enum(['openai', 'gemini', 'groq', 'openrouter']).default('gemini'),
+  LLM_FALLBACK_PROVIDERS: z.string().default('openai,groq,openrouter'),
   /** When `add_context_from_internet` and text length >= threshold, prefer Pro (unless LLM_INTERNET_PREFER locks flash) */
   LLM_INTERNET_USE_PRO_THRESHOLD: z.coerce.number().int().positive().default(12000),
   LLM_INTERNET_PREFER: z.enum(['flash', 'pro']).default('flash'),
