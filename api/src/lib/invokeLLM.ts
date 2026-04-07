@@ -23,6 +23,20 @@ type Resolved =
   | { provider: 'openai'; modelId: string }
   | { provider: 'gemini'; modelId: string };
 
+function isQuotaOrRateLimited(err: unknown): boolean {
+  const code = (err as { code?: unknown })?.code;
+  const status = (err as { status?: unknown })?.status;
+  const type = (err as { type?: unknown })?.type;
+  const msg = String((err as { message?: unknown })?.message ?? '').toLowerCase();
+  return (
+    code === 'insufficient_quota' ||
+    type === 'insufficient_quota' ||
+    status === 429 ||
+    msg.includes('quota') ||
+    msg.includes('rate limit')
+  );
+}
+
 function pickInternetGeminiModel(contextLength: number): string {
   if (env.LLM_INTERNET_PREFER === 'pro') {
     return env.GEMINI_MODEL_PRO;
@@ -200,20 +214,28 @@ export async function invokeLLM(opts: InvokeLLMOptions): Promise<string> {
       return await callOpenAI(resolved, opts);
     } catch (err) {
       // Auto-fallback when OpenAI quota is exhausted/rate-limited and Gemini is configured.
-      if (env.GOOGLE_AI_API_KEY) {
-        const code = (err as { code?: unknown })?.code;
-        const status = (err as { status?: unknown })?.status;
-        const type = (err as { type?: unknown })?.type;
-        const shouldFallback =
-          code === 'insufficient_quota' ||
-          type === 'insufficient_quota' ||
-          status === 429;
-        if (shouldFallback) {
+      if (env.GOOGLE_AI_API_KEY && isQuotaOrRateLimited(err)) {
+        try {
           return callGemini({ provider: 'gemini', modelId: env.GEMINI_MODEL_FLASH }, opts);
+        } catch (geminiErr) {
+          if (isQuotaOrRateLimited(geminiErr)) {
+            throw new AppError(503, 'AI service is temporarily unavailable (provider quota exceeded). Please try again later.');
+          }
+          throw geminiErr;
         }
+      }
+      if (isQuotaOrRateLimited(err)) {
+        throw new AppError(503, 'AI service is temporarily unavailable (provider quota exceeded). Please try again later.');
       }
       throw err;
     }
   }
-  return callGemini(resolved, opts);
+  try {
+    return await callGemini(resolved, opts);
+  } catch (err) {
+    if (isQuotaOrRateLimited(err)) {
+      throw new AppError(503, 'AI service is temporarily unavailable (provider quota exceeded). Please try again later.');
+    }
+    throw err;
+  }
 }
