@@ -196,7 +196,24 @@ async function callGemini(resolved: { provider: 'gemini'; modelId: string }, opt
 export async function invokeLLM(opts: InvokeLLMOptions): Promise<string> {
   const resolved = resolveLLMModel(opts);
   if (resolved.provider === 'openai') {
-    return callOpenAI(resolved, opts);
+    try {
+      return await callOpenAI(resolved, opts);
+    } catch (err) {
+      // Auto-fallback when OpenAI quota is exhausted/rate-limited and Gemini is configured.
+      if (env.GOOGLE_AI_API_KEY) {
+        const code = (err as { code?: unknown })?.code;
+        const status = (err as { status?: unknown })?.status;
+        const type = (err as { type?: unknown })?.type;
+        const shouldFallback =
+          code === 'insufficient_quota' ||
+          type === 'insufficient_quota' ||
+          status === 429;
+        if (shouldFallback) {
+          return callGemini({ provider: 'gemini', modelId: env.GEMINI_MODEL_FLASH }, opts);
+        }
+      }
+      throw err;
+    }
   }
   return callGemini(resolved, opts);
 }
