@@ -191,7 +191,7 @@ export async function searchRecipes(req: AuthRequest, res: Response, next: NextF
       where.OR = [
         { title: { contains: searchQ, mode: 'insensitive' } },
         { description: { contains: searchQ, mode: 'insensitive' } },
-        { ingredients: { string_contains: searchQ, mode: 'insensitive' } },
+        { ingredients: { string_contains: searchQ } },
       ];
     }
 
