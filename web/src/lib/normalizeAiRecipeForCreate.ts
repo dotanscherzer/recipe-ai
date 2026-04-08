@@ -4,10 +4,14 @@ export function normalizeAiRecipeForCreate(r: Record<string, unknown>) {
   const ingredients = rawIngr
     .map((ing: unknown) => {
       const o = ing && typeof ing === 'object' ? (ing as Record<string, unknown>) : {};
+      let amount = String(o.amount ?? '').trim();
+      let unit = String(o.unit ?? '').trim();
+      if (!amount) amount = '1';
+      if (!unit) unit = 'portion';
       return {
         name: String(o.name ?? '').trim(),
-        amount: String(o.amount ?? '').trim(),
-        unit: String(o.unit ?? '').trim(),
+        amount,
+        unit,
       };
     })
     .filter((ing) => ing.name.length > 0);
@@ -19,10 +23,30 @@ export function normalizeAiRecipeForCreate(r: Record<string, unknown>) {
   const tags = (Array.isArray(r.tags) ? r.tags : []).map((t) => String(t)).filter(Boolean);
 
   const d = r.difficulty;
-  const difficulty =
-    d === 'EASY' || d === 'MEDIUM' || d === 'HARD' ? d : undefined;
+  let difficulty: 'EASY' | 'MEDIUM' | 'HARD' | undefined;
+  if (typeof d === 'string') {
+    const u = d.trim().toUpperCase();
+    if (u === 'EASY' || u === 'MEDIUM' || u === 'HARD') difficulty = u;
+  } else if (d === 'EASY' || d === 'MEDIUM' || d === 'HARD') {
+    difficulty = d;
+  }
 
   const title = String(r.title ?? '').trim().slice(0, 200) || 'Recipe';
+
+  const asNumber = (n: unknown): number | undefined => {
+    if (typeof n === 'number' && Number.isFinite(n)) return n;
+    if (typeof n === 'string' && n.trim() !== '') {
+      const v = Number(n);
+      if (Number.isFinite(v)) return v;
+    }
+    return undefined;
+  };
+  const posInt = (n: unknown) => {
+    const x = asNumber(n);
+    if (x === undefined) return undefined;
+    const v = Math.max(1, Math.round(x));
+    return v > 0 ? v : undefined;
+  };
 
   return {
     title,
@@ -30,9 +54,9 @@ export function normalizeAiRecipeForCreate(r: Record<string, unknown>) {
     ingredients,
     steps,
     tags,
-    prepTime: typeof r.prepTime === 'number' && r.prepTime > 0 ? r.prepTime : undefined,
-    cookTime: typeof r.cookTime === 'number' && r.cookTime > 0 ? r.cookTime : undefined,
-    servings: typeof r.servings === 'number' && r.servings > 0 ? r.servings : undefined,
+    prepTime: posInt(r.prepTime),
+    cookTime: posInt(r.cookTime),
+    servings: posInt(r.servings),
     difficulty,
     cuisine: r.cuisine != null ? String(r.cuisine) : undefined,
     imageUrl:

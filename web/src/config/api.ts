@@ -22,8 +22,15 @@ async function api<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   }
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error || 'Request failed');
+    const error = (await response.json().catch(() => ({ error: 'Request failed' }))) as {
+      error?: string;
+      details?: Array<{ field?: string; message?: string }>;
+    };
+    let message = error.error || 'Request failed';
+    if (Array.isArray(error.details) && error.details.length > 0) {
+      message += `: ${error.details.map((d) => `${d.field ?? '?'}: ${d.message ?? ''}`).join('; ')}`;
+    }
+    throw new Error(message);
   }
 
   return response.json();

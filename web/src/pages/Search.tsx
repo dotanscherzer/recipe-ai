@@ -19,6 +19,7 @@ export default function Search() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const logout = useAuthStore((s) => s.logout);
   const [activeTab, setActiveTab] = useState<Tab>('keyword');
   /** Committed query sent to API (avoid a request per keystroke → fewer 504s/timeouts). */
   const [keywordInput, setKeywordInput] = useState('');
@@ -88,8 +89,17 @@ export default function Search() {
         queryClient.invalidateQueries({ queryKey: ['recipes'] });
       } catch (e) {
         if (!cancelled && runId === chefRunIdRef.current) {
-          setChefError(true);
-          setChefErrorMessage(e instanceof Error ? e.message : null);
+          const msg = e instanceof Error ? e.message : '';
+          const authFailed =
+            /missing authorization|invalid or expired token|user not found|401/i.test(msg);
+          if (authFailed) {
+            void logout();
+            setChefError(true);
+            setChefErrorMessage(t('search.sessionExpired'));
+          } else {
+            setChefError(true);
+            setChefErrorMessage(e instanceof Error ? e.message : null);
+          }
         }
       } finally {
         if (!cancelled && runId === chefRunIdRef.current) {
@@ -110,6 +120,8 @@ export default function Search() {
     searchResults.data?.recipes,
     queryClient,
     chefAttemptKey,
+    logout,
+    t,
   ]);
 
   useEffect(() => {
