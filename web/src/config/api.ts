@@ -141,6 +141,12 @@ export const authApi = {
     });
     return res.user;
   },
+  getAuthProviders: () => api<{ google: boolean; apple: boolean }>('/auth/providers'),
+  oauthExchange: (code: string) =>
+    api<{ accessToken: string; refreshToken: string }>('/auth/oauth/exchange', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
   getToken,
   setTokens,
   clearTokens,
@@ -195,9 +201,12 @@ export const categoriesApi = {
 export const aiApi = {
   generate: (data: any) => api<any>('/ai/generate', { method: 'POST', body: JSON.stringify(data) }),
   modify: (data: any) => api<any>('/ai/modify', { method: 'POST', body: JSON.stringify(data) }),
-  importText: (data: { text: string }) => api<any>('/ai/import-text', { method: 'POST', body: JSON.stringify(data) }),
-  importUrl: (data: { url: string }) => api<any>('/ai/import-url', { method: 'POST', body: JSON.stringify(data) }),
-  importImage: (data: { imageUrl: string }) => api<any>('/ai/import-image', { method: 'POST', body: JSON.stringify(data) }),
+  importText: (data: { text: string; locale?: 'en' | 'he' }) =>
+    api<any>('/ai/import-text', { method: 'POST', body: JSON.stringify(data) }),
+  importUrl: (data: { url: string; locale?: 'en' | 'he' }) =>
+    api<any>('/ai/import-url', { method: 'POST', body: JSON.stringify(data) }),
+  importImage: (data: { imageUrl: string; locale?: 'en' | 'he' }) =>
+    api<any>('/ai/import-image', { method: 'POST', body: JSON.stringify(data) }),
   chat: (data: any) => api<any>('/ai/chat', { method: 'POST', body: JSON.stringify(data) }),
 };
 

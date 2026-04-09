@@ -53,8 +53,14 @@ export default function RecipeDetail() {
 
       <div className="flex items-start justify-between gap-4 mb-4">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold text-stone-800">{recipe.title}</h1>
-          {recipe.description && <p className="text-stone-500 mt-1">{recipe.description}</p>}
+          <h1 className="text-2xl lg:text-3xl font-bold text-stone-800" dir="auto">
+            {recipe.title}
+          </h1>
+          {recipe.description && (
+            <p className="text-stone-500 mt-1" dir="auto">
+              {recipe.description}
+            </p>
+          )}
         </div>
         <button
           onClick={() => saveRecipe.mutate({ recipeId: recipe.id })}
@@ -89,7 +95,7 @@ export default function RecipeDetail() {
           </span>
         )}
         {recipe.cuisine && (
-          <span className="px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm">
+          <span className="px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm" dir="auto">
             <ChefHat size={14} className="inline me-1" />
             {recipe.cuisine}
           </span>
@@ -131,7 +137,9 @@ export default function RecipeDetail() {
                 <span className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-semibold shrink-0">
                   {i + 1}
                 </span>
-                <span className="text-sm leading-relaxed">{step}</span>
+                <span className="text-sm leading-relaxed" dir="auto">
+                  {step}
+                </span>
               </li>
             ))}
           </ol>

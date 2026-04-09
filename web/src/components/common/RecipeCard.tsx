@@ -54,9 +54,13 @@ export default function RecipeCard({ recipe }: RecipeCardProps) {
       </div>
 
       <div className="p-4">
-        <h3 className="font-semibold text-stone-800 line-clamp-1">{recipe.title}</h3>
+        <h3 className="font-semibold text-stone-800 line-clamp-1" dir="auto">
+          {recipe.title}
+        </h3>
         {recipe.description && (
-          <p className="text-sm text-stone-500 mt-1 line-clamp-2">{recipe.description}</p>
+          <p className="text-sm text-stone-500 mt-1 line-clamp-2" dir="auto">
+            {recipe.description}
+          </p>
         )}
 
         <div className="flex items-center gap-3 mt-3 text-xs text-stone-500">
@@ -78,7 +82,9 @@ export default function RecipeCard({ recipe }: RecipeCardProps) {
             </span>
           )}
           {recipe.cuisine && (
-            <span className="px-2 py-0.5 rounded-full bg-stone-100 text-stone-600">{recipe.cuisine}</span>
+            <span className="px-2 py-0.5 rounded-full bg-stone-100 text-stone-600" dir="auto">
+              {recipe.cuisine}
+            </span>
           )}
         </div>
       </div>

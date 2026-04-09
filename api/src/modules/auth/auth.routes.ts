@@ -9,6 +9,7 @@ import {
   updateMeSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  oauthExchangeSchema,
 } from './auth.schemas';
 import {
   register,
@@ -20,8 +21,23 @@ import {
   forgotPassword,
   resetPassword,
 } from './auth.controller';
+import {
+  authProviders,
+  googleStart,
+  googleCallback,
+  appleStart,
+  appleCallback,
+  oauthExchange,
+} from './oauth.controller';
 
 const router = Router();
+
+router.get('/providers', asyncHandler(authProviders));
+router.get('/google', asyncHandler(googleStart));
+router.get('/google/callback', asyncHandler(googleCallback));
+router.get('/apple', asyncHandler(appleStart));
+router.get('/apple/callback', asyncHandler(appleCallback));
+router.post('/oauth/exchange', validate(oauthExchangeSchema), asyncHandler(oauthExchange));
 
 router.post('/forgot-password', validate(forgotPasswordSchema), asyncHandler(forgotPassword));
 router.post('/reset-password', validate(resetPasswordSchema), asyncHandler(resetPassword));

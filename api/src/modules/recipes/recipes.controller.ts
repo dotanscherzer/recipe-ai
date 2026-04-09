@@ -7,6 +7,29 @@ import { listRecipeSchema, searchRecipeSchema } from './recipes.schemas';
 
 type ListRecipeQuery = z.infer<typeof listRecipeSchema>;
 
+const SEARCH_MIN_TOKEN_LEN = 2;
+const SEARCH_MAX_TOKENS = 5;
+
+/** Split query into tokens; each token must match somewhere (title, description, or ingredients JSON). */
+function tokenizeSearchQuery(q: string): string[] {
+  return q
+    .trim()
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= SEARCH_MIN_TOKEN_LEN)
+    .slice(0, SEARCH_MAX_TOKENS);
+}
+
+function matchTokenClause(token: string) {
+  return {
+    OR: [
+      { title: { contains: token, mode: 'insensitive' as const } },
+      { description: { contains: token, mode: 'insensitive' as const } },
+      { ingredients: { string_contains: token } },
+    ],
+  };
+}
+
 export async function listRecipes(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const q = req.query as unknown as ListRecipeQuery;
@@ -186,13 +209,13 @@ export async function searchRecipes(req: AuthRequest, res: Response, next: NextF
 
     const where: Record<string, unknown> = { isPublic: true };
 
+    const andClauses: Record<string, unknown>[] = [];
+
     if (searchQ) {
-      // Match title/description and ingredient names (stored as JSON); keyword-only search used to miss many recipes.
-      where.OR = [
-        { title: { contains: searchQ, mode: 'insensitive' } },
-        { description: { contains: searchQ, mode: 'insensitive' } },
-        { ingredients: { string_contains: searchQ } },
-      ];
+      const tokens = tokenizeSearchQuery(searchQ);
+      for (const token of tokens) {
+        andClauses.push(matchTokenClause(token));
+      }
     }
 
     if (cuisine) where.cuisine = cuisine;
@@ -204,10 +227,12 @@ export async function searchRecipes(req: AuthRequest, res: Response, next: NextF
         const ingredientClauses = ingredientList.map((ingredient) => ({
           ingredients: { string_contains: ingredient },
         }));
-        const prevAnd = where.AND;
-        const andArray = Array.isArray(prevAnd) ? [...prevAnd] : prevAnd ? [prevAnd] : [];
-        where.AND = [...andArray, ...ingredientClauses];
+        andClauses.push(...ingredientClauses);
       }
+    }
+
+    if (andClauses.length > 0) {
+      where.AND = andClauses;
     }
 
     const [recipes, total] = await Promise.all([

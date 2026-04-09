@@ -7,28 +7,7 @@ import { prisma } from '../../config/db';
 import { AuthRequest } from '../../middleware/auth';
 import { AppError } from '../../middleware/errorHandler';
 import { sendPasswordResetEmail } from '../../lib/mail';
-
-function generateAccessToken(userId: string): string {
-  return jwt.sign({ userId }, env.JWT_ACCESS_SECRET, {
-    expiresIn: env.JWT_ACCESS_EXPIRY as any,
-  });
-}
-
-function generateRefreshToken(userId: string): string {
-  return jwt.sign({ userId }, env.JWT_REFRESH_SECRET, {
-    expiresIn: env.JWT_REFRESH_EXPIRY as any,
-  });
-}
-
-function parseExpiry(expiry: string): Date {
-  const match = expiry.match(/^(\d+)([smhd])$/);
-  if (!match) return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // default 30d
-
-  const value = parseInt(match[1], 10);
-  const unit = match[2];
-  const ms = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[unit]!;
-  return new Date(Date.now() + value * ms);
-}
+import { generateAccessToken, generateRefreshToken, parseExpiry } from './auth.tokens';
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 

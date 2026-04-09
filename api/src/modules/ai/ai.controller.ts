@@ -5,13 +5,20 @@ import { AppError } from '../../middleware/errorHandler';
 import { parseJsonFromAiText } from '../../lib/parseAiJson';
 import { assertSafeHttpsUrl, fetchTextFromSafeUrl } from '../../lib/safeUrl';
 import { invokeLLM } from '../../lib/invokeLLM';
+import type { RecipeAiLocale } from './ai.prompts';
 import {
-  RECIPE_GENERATION_PROMPT,
-  RECIPE_MODIFICATION_PROMPT,
-  TEXT_IMPORT_PROMPT,
-  IMAGE_IMPORT_PROMPT,
-  CHAT_PROMPT,
+  recipeGenerationSystem,
+  recipeModificationSystem,
+  textImportSystem,
+  urlImportSystem,
+  imageImportSystem,
+  chatSystem,
 } from './ai.prompts';
+import { buildImportUrlUserContent, fetchSocialEmbedForUrl } from '../../lib/socialUrlEnrichment';
+
+function parseLocale(raw: unknown): RecipeAiLocale {
+  return raw === 'he' ? 'he' : 'en';
+}
 
 function parseJsonResponse(text: string) {
   try {
@@ -23,6 +30,7 @@ function parseJsonResponse(text: string) {
 
 export async function generate(req: AuthRequest, res: Response) {
   const { prompt, cuisine, difficulty, servings, dietaryRestrictions, model } = req.body;
+  const locale = parseLocale(req.body.locale);
 
   let userMessage = prompt;
   if (cuisine) userMessage += `\nCuisine: ${cuisine}`;
@@ -33,7 +41,7 @@ export async function generate(req: AuthRequest, res: Response) {
   }
 
   const text = await invokeLLM({
-    system: RECIPE_GENERATION_PROMPT,
+    system: recipeGenerationSystem(locale),
     messages: [{ role: 'user', content: userMessage }],
     model,
   });
@@ -45,6 +53,7 @@ export async function generate(req: AuthRequest, res: Response) {
 
 export async function modify(req: AuthRequest, res: Response) {
   const { recipeId, modification, model } = req.body;
+  const locale = parseLocale(req.body.locale);
 
   const recipe = await prisma.recipe.findUnique({ where: { id: recipeId } });
   if (!recipe) {
@@ -56,7 +65,7 @@ export async function modify(req: AuthRequest, res: Response) {
   }
 
   const text = await invokeLLM({
-    system: RECIPE_MODIFICATION_PROMPT,
+    system: recipeModificationSystem(locale),
     messages: [
       {
         role: 'user',
@@ -73,9 +82,10 @@ export async function modify(req: AuthRequest, res: Response) {
 
 export async function importText(req: AuthRequest, res: Response) {
   const { text: recipeText, model } = req.body;
+  const locale = parseLocale(req.body.locale);
 
   const text = await invokeLLM({
-    system: TEXT_IMPORT_PROMPT,
+    system: textImportSystem(locale),
     messages: [{ role: 'user', content: recipeText }],
     model,
   });
@@ -86,24 +96,33 @@ export async function importText(req: AuthRequest, res: Response) {
 }
 
 export async function importUrl(req: AuthRequest, res: Response) {
-  const { url, model } = req.body;
+  const { url: normalizedUrl, model } = req.body;
+  const locale = parseLocale(req.body.locale);
 
-  const html = await fetchTextFromSafeUrl(url);
+  assertSafeHttpsUrl(normalizedUrl);
+
+  let html = '';
+  try {
+    html = await fetchTextFromSafeUrl(normalizedUrl);
+  } catch {
+    html = '';
+  }
+
   const cheerio = await import('cheerio');
-  const $ = cheerio.load(html);
+  const $ = cheerio.load(html || '<html><body></body></html>');
   $('script, style, nav, footer, header').remove();
   const pageText = $('body').text().replace(/\s+/g, ' ').trim();
 
-  if (!pageText) {
-    throw new AppError(400, 'No text content found at the provided URL');
-  }
+  const embed = await fetchSocialEmbedForUrl(normalizedUrl);
+  const userContent = buildImportUrlUserContent(normalizedUrl, pageText, embed);
+  const contextLen = Math.max(500, userContent.length);
 
   const text = await invokeLLM({
-    system: TEXT_IMPORT_PROMPT,
-    messages: [{ role: 'user', content: pageText }],
+    system: urlImportSystem(locale),
+    messages: [{ role: 'user', content: userContent }],
     model,
     add_context_from_internet: true,
-    internetContextLength: pageText.length,
+    internetContextLength: contextLen,
   });
 
   const recipe = parseJsonResponse(text);
@@ -113,11 +132,12 @@ export async function importUrl(req: AuthRequest, res: Response) {
 
 export async function importImage(req: AuthRequest, res: Response) {
   const { imageUrl, model } = req.body;
+  const locale = parseLocale(req.body.locale);
 
   assertSafeHttpsUrl(imageUrl);
 
   const text = await invokeLLM({
-    system: IMAGE_IMPORT_PROMPT,
+    system: imageImportSystem(locale),
     messages: [],
     model,
     vision: {
@@ -133,8 +153,9 @@ export async function importImage(req: AuthRequest, res: Response) {
 
 export async function chat(req: AuthRequest, res: Response) {
   const { recipeId, message: userMessage, history, model } = req.body;
+  const locale = parseLocale(req.body.locale);
 
-  let systemPrompt = CHAT_PROMPT;
+  let systemPrompt = chatSystem(locale);
 
   if (recipeId) {
     const recipe = await prisma.recipe.findUnique({ where: { id: recipeId } });

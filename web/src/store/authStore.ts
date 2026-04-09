@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { authApi } from '../config/api';
+import { useAppStore } from './appStore';
 
 interface User {
   id: string;
@@ -21,6 +22,12 @@ interface AuthState {
   updateUser: (data: Partial<User>) => Promise<void>;
 }
 
+function syncLocaleFromUser(user: User) {
+  if (user.locale === 'he' || user.locale === 'en') {
+    useAppStore.getState().setLocale(user.locale);
+  }
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isLoading: true,
@@ -30,12 +37,14 @@ export const useAuthStore = create<AuthState>((set) => ({
     const { accessToken, refreshToken, user } = await authApi.login({ email, password });
     authApi.setTokens(accessToken, refreshToken);
     set({ user, isAuthenticated: true });
+    syncLocaleFromUser(user);
   },
 
   register: async (fullName, email, password) => {
     const { accessToken, refreshToken, user } = await authApi.register({ fullName, email, password });
     authApi.setTokens(accessToken, refreshToken);
     set({ user, isAuthenticated: true });
+    syncLocaleFromUser(user);
   },
 
   logout: async () => {
@@ -52,6 +61,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
       const user = await authApi.getMe();
       set({ user, isAuthenticated: true, isLoading: false });
+      syncLocaleFromUser(user);
     } catch {
       authApi.clearTokens();
       set({ user: null, isAuthenticated: false, isLoading: false });
@@ -61,5 +71,6 @@ export const useAuthStore = create<AuthState>((set) => ({
   updateUser: async (data) => {
     const user = await authApi.updateMe(data);
     set({ user });
+    syncLocaleFromUser(user);
   },
 }));

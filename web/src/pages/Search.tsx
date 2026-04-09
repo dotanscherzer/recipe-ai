@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
@@ -10,8 +10,10 @@ import SkeletonCard from '../components/common/SkeletonCard';
 import EmptyState from '../components/common/EmptyState';
 import { cn } from '../lib/utils';
 import { useAuthStore } from '../store/authStore';
+import { useAppStore } from '../store/appStore';
 import { aiApi, recipesApi } from '../config/api';
 import { normalizeAiRecipeForCreate } from '../lib/normalizeAiRecipeForCreate';
+import { normalizeImportUrl } from '../lib/normalizeImportUrl';
 
 type Tab = 'keyword' | 'ingredients' | 'import';
 
@@ -20,6 +22,7 @@ export default function Search() {
   const queryClient = useQueryClient();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const logout = useAuthStore((s) => s.logout);
+  const locale = useAppStore((s) => s.locale);
   const [activeTab, setActiveTab] = useState<Tab>('keyword');
   /** Committed query sent to API (avoid a request per keystroke → fewer 504s/timeouts). */
   const [keywordInput, setKeywordInput] = useState('');
@@ -27,6 +30,21 @@ export default function Search() {
   const [ingredients, setIngredients] = useState('');
   const [importText, setImportText] = useState('');
   const [importUrl, setImportUrl] = useState('');
+  const [importSavedRecipe, setImportSavedRecipe] = useState<{
+    id: string;
+    title: string;
+    description?: string;
+    imageUrl?: string;
+    prepTime?: number;
+    cookTime?: number;
+    servings?: number;
+    difficulty?: string;
+    cuisine?: string;
+    isAiGenerated?: boolean;
+  } | null>(null);
+  const [importErrorMessage, setImportErrorMessage] = useState<string | null>(null);
+  const [importUrlBusy, setImportUrlBusy] = useState(false);
+  const [importTextBusy, setImportTextBusy] = useState(false);
   const [chefGenerating, setChefGenerating] = useState(false);
   const [chefError, setChefError] = useState(false);
   const [chefErrorMessage, setChefErrorMessage] = useState<string | null>(null);
@@ -34,6 +52,154 @@ export default function Search() {
   const chefRunIdRef = useRef(0);
 
   const searchResults = useSearchRecipes({ q: keywordQuery });
+
+  const executeAiChef = useCallback(
+    async (
+      resultMode: 'replaceEmpty' | 'prepend',
+      opts?: { isCancelled?: () => boolean }
+    ) => {
+      const runId = ++chefRunIdRef.current;
+      setChefGenerating(true);
+      setChefError(false);
+      setChefErrorMessage(null);
+      try {
+        if (opts?.isCancelled?.()) return;
+        const { recipe } = await aiApi.generate({
+          locale,
+          prompt:
+            locale === 'he'
+              ? `צור מתכון ביתי מלא ומעשי שמתאים לחיפוש: "${keywordQuery}".`
+              : `Create one complete, practical home-cooking recipe that matches this search: "${keywordQuery}".`,
+        });
+        if (opts?.isCancelled?.()) return;
+        const body = normalizeAiRecipeForCreate(recipe as Record<string, unknown>);
+        if (body.ingredients.length < 1 || body.steps.length < 1) {
+          throw new Error('Invalid recipe shape');
+        }
+        const saved = await recipesApi.create({
+          ...body,
+          isAiGenerated: true,
+          isPublic: true,
+        });
+        if (opts?.isCancelled?.()) return;
+        if (runId !== chefRunIdRef.current) return;
+        if (resultMode === 'replaceEmpty') {
+          queryClient.setQueryData(['recipes', 'search', { q: keywordQuery }], {
+            recipes: [saved],
+            total: 1,
+          });
+        } else {
+          queryClient.setQueryData(
+            ['recipes', 'search', { q: keywordQuery }],
+            (old: { recipes?: unknown[]; total?: number } | undefined) => {
+              const prev = old?.recipes ?? [];
+              return {
+                recipes: [saved, ...prev],
+                total: typeof old?.total === 'number' ? old.total + 1 : prev.length + 1,
+              };
+            }
+          );
+        }
+        queryClient.invalidateQueries({ queryKey: ['recipes'] });
+      } catch (e) {
+        if (opts?.isCancelled?.()) return;
+        if (runId !== chefRunIdRef.current) return;
+        const msg = e instanceof Error ? e.message : '';
+        const authFailed =
+          /missing authorization|invalid or expired token|user not found|401/i.test(msg);
+        if (authFailed) {
+          void logout();
+          setChefError(true);
+          setChefErrorMessage(t('search.sessionExpired'));
+        } else {
+          setChefError(true);
+          setChefErrorMessage(e instanceof Error ? e.message : null);
+        }
+      } finally {
+        if (runId === chefRunIdRef.current) {
+          setChefGenerating(false);
+        }
+      }
+    },
+    [keywordQuery, locale, queryClient, logout, t]
+  );
+
+  const aiGenerate = useAiGenerate();
+  const aiImportText = useAiImportText();
+  const aiImportUrl = useAiImportUrl();
+
+  const handleImportError = useCallback(
+    (e: unknown) => {
+      const msg = e instanceof Error ? e.message : '';
+      const authFailed =
+        /missing authorization|invalid or expired token|user not found|401/i.test(msg);
+      if (authFailed) {
+        void logout();
+        setImportErrorMessage(t('search.sessionExpired'));
+      } else {
+        setImportErrorMessage(e instanceof Error ? e.message : null);
+      }
+    },
+    [logout, t]
+  );
+
+  const runImportUrl = useCallback(async () => {
+    const url = normalizeImportUrl(importUrl);
+    if (!url) return;
+    setImportUrlBusy(true);
+    setImportErrorMessage(null);
+    setImportSavedRecipe(null);
+    try {
+      const { recipe } = await aiImportUrl.mutateAsync({
+        url,
+        ...(locale === 'he' || locale === 'en' ? { locale } : {}),
+      });
+      const body = normalizeAiRecipeForCreate(recipe as Record<string, unknown>);
+      if (body.ingredients.length < 1 || body.steps.length < 1) {
+        throw new Error('Invalid recipe shape');
+      }
+      const saved = await recipesApi.create({
+        ...body,
+        isAiGenerated: true,
+        isPublic: true,
+      });
+      setImportSavedRecipe(saved);
+      queryClient.invalidateQueries({ queryKey: ['recipes'] });
+    } catch (e) {
+      handleImportError(e);
+    } finally {
+      setImportUrlBusy(false);
+    }
+  }, [importUrl, locale, aiImportUrl, queryClient, handleImportError]);
+
+  const runImportText = useCallback(async () => {
+    const text = importText.trim();
+    if (text.length < 10) return;
+    setImportTextBusy(true);
+    setImportErrorMessage(null);
+    setImportSavedRecipe(null);
+    try {
+      const { recipe } = await aiImportText.mutateAsync({
+        text,
+        ...(locale === 'he' || locale === 'en' ? { locale } : {}),
+      });
+      const body = normalizeAiRecipeForCreate(recipe as Record<string, unknown>);
+      if (body.ingredients.length < 1 || body.steps.length < 1) {
+        throw new Error('Invalid recipe shape');
+      }
+      const saved = await recipesApi.create({
+        ...body,
+        isAiGenerated: true,
+        isPublic: true,
+      });
+      setImportSavedRecipe(saved);
+      queryClient.invalidateQueries({ queryKey: ['recipes'] });
+    } catch (e) {
+      handleImportError(e);
+    } finally {
+      setImportTextBusy(false);
+    }
+  }, [importText, locale, aiImportText, queryClient, handleImportError]);
 
   const runKeywordSearch = () => {
     const nextQuery = keywordInput.trim();
@@ -49,9 +215,6 @@ export default function Search() {
     }
     setKeywordQuery(nextQuery);
   };
-  const aiGenerate = useAiGenerate();
-  const aiImportText = useAiImportText();
-  const aiImportUrl = useAiImportUrl();
 
   useEffect(() => {
     if (!keywordQuery || !searchResults.isSuccess || searchResults.isFetching || searchResults.isError) {
@@ -62,51 +225,8 @@ export default function Search() {
       return;
     }
 
-    const runId = ++chefRunIdRef.current;
     let cancelled = false;
-    setChefGenerating(true);
-    setChefError(false);
-
-    (async () => {
-      try {
-        const { recipe } = await aiApi.generate({
-          prompt: `Create one complete, practical home-cooking recipe that matches this search: "${keywordQuery}". Prefer titles and instructions in the same language as the search text when it is not English.`,
-        });
-        const body = normalizeAiRecipeForCreate(recipe as Record<string, unknown>);
-        if (body.ingredients.length < 1 || body.steps.length < 1) {
-          throw new Error('Invalid recipe shape');
-        }
-        const saved = await recipesApi.create({
-          ...body,
-          isAiGenerated: true,
-          isPublic: true,
-        });
-        if (cancelled || runId !== chefRunIdRef.current) return;
-        queryClient.setQueryData(['recipes', 'search', { q: keywordQuery }], {
-          recipes: [saved],
-          total: 1,
-        });
-        queryClient.invalidateQueries({ queryKey: ['recipes'] });
-      } catch (e) {
-        if (!cancelled && runId === chefRunIdRef.current) {
-          const msg = e instanceof Error ? e.message : '';
-          const authFailed =
-            /missing authorization|invalid or expired token|user not found|401/i.test(msg);
-          if (authFailed) {
-            void logout();
-            setChefError(true);
-            setChefErrorMessage(t('search.sessionExpired'));
-          } else {
-            setChefError(true);
-            setChefErrorMessage(e instanceof Error ? e.message : null);
-          }
-        }
-      } finally {
-        if (!cancelled && runId === chefRunIdRef.current) {
-          setChefGenerating(false);
-        }
-      }
-    })();
+    void executeAiChef('replaceEmpty', { isCancelled: () => cancelled });
 
     return () => {
       cancelled = true;
@@ -118,10 +238,8 @@ export default function Search() {
     searchResults.isFetching,
     searchResults.isError,
     searchResults.data?.recipes,
-    queryClient,
     chefAttemptKey,
-    logout,
-    t,
+    executeAiChef,
   ]);
 
   useEffect(() => {
@@ -210,6 +328,34 @@ export default function Search() {
                   <RecipeCard key={recipe.id} recipe={recipe} />
                 ))}
           </div>
+
+          {keywordQuery &&
+            !searchResults.isFetching &&
+            !chefGenerating &&
+            !searchResults.isError &&
+            (searchResults.data?.recipes?.length ?? 0) > 0 && (
+              <div className="mt-8 p-4 rounded-xl border border-stone-200 bg-stone-50/80 space-y-3">
+                <p className="text-sm text-stone-600">{t('search.aiGenerateHint')}</p>
+                {isAuthenticated ? (
+                  <button
+                    type="button"
+                    onClick={() => void executeAiChef('prepend')}
+                    disabled={chefGenerating}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-accent text-white rounded-xl text-sm font-medium hover:bg-accent-600 transition-colors disabled:opacity-50"
+                  >
+                    {t('search.aiGenerateButton')}
+                  </button>
+                ) : (
+                  <p className="text-sm text-stone-600">
+                    <Link to="/login" className="text-primary font-medium hover:underline">
+                      {t('nav.login')}
+                    </Link>
+                    {' — '}
+                    {t('search.loginToGenerate')}
+                  </p>
+                )}
+              </div>
+            )}
           {keywordQuery &&
             !searchResults.isFetching &&
             !chefGenerating &&
@@ -268,7 +414,15 @@ export default function Search() {
             className="w-full p-4 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white min-h-[120px] resize-none"
           />
           <button
-            onClick={() => aiGenerate.mutate({ prompt: `Create a recipe using these ingredients: ${ingredients}` })}
+            onClick={() =>
+              aiGenerate.mutate({
+                locale,
+                prompt:
+                  locale === 'he'
+                    ? `צור מתכון שמשתמש במרכיבים הבאים: ${ingredients}`
+                    : `Create a recipe using these ingredients: ${ingredients}`,
+              })
+            }
             disabled={!ingredients || aiGenerate.isPending}
             className="mt-3 px-6 py-3 bg-accent text-white rounded-xl font-medium hover:bg-accent-600 transition-colors disabled:opacity-50"
           >
@@ -284,6 +438,14 @@ export default function Search() {
 
       {activeTab === 'import' && (
         <div className="space-y-6">
+          {!isAuthenticated && (
+            <p className="text-sm text-stone-600">
+              {t('search.loginToImport')}{' '}
+              <Link to="/login" className="text-primary font-medium hover:underline">
+                {t('nav.login')}
+              </Link>
+            </p>
+          )}
           <div>
             <label className="text-sm font-medium text-stone-700 mb-2 block">
               <LinkIcon size={14} className="inline me-1" />
@@ -291,18 +453,23 @@ export default function Search() {
             </label>
             <div className="flex gap-2">
               <input
-                type="url"
+                type="text"
+                inputMode="url"
+                autoComplete="url"
                 value={importUrl}
                 onChange={(e) => setImportUrl(e.target.value)}
-                placeholder="https://..."
+                placeholder="tiktok.com/... or https://..."
                 className="flex-1 px-4 py-3 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
               />
               <button
-                onClick={() => aiImportUrl.mutate({ url: importUrl })}
-                disabled={!importUrl || aiImportUrl.isPending}
+                type="button"
+                onClick={() => void runImportUrl()}
+                disabled={
+                  !normalizeImportUrl(importUrl) || importUrlBusy || !isAuthenticated
+                }
                 className="px-4 py-3 bg-primary text-white rounded-xl font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
               >
-                {aiImportUrl.isPending ? t('ai.processing') : t('search.import')}
+                {importUrlBusy ? t('ai.processing') : t('search.import')}
               </button>
             </div>
           </div>
@@ -319,13 +486,27 @@ export default function Search() {
               className="w-full p-4 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white min-h-[150px] resize-none"
             />
             <button
-              onClick={() => aiImportText.mutate({ text: importText })}
-              disabled={!importText || aiImportText.isPending}
+              type="button"
+              onClick={() => void runImportText()}
+              disabled={
+                importText.trim().length < 10 || importTextBusy || !isAuthenticated
+              }
               className="mt-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
             >
-              {aiImportText.isPending ? t('ai.processing') : t('search.import')}
+              {importTextBusy ? t('ai.processing') : t('search.import')}
             </button>
           </div>
+
+          {importErrorMessage && (
+            <p className="text-sm text-red-600" role="alert">
+              {importErrorMessage}
+            </p>
+          )}
+          {importSavedRecipe && (
+            <div className="mt-4">
+              <RecipeCard recipe={importSavedRecipe} />
+            </div>
+          )}
         </div>
       )}
     </div>

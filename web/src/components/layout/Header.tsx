@@ -3,17 +3,22 @@ import { Link } from 'react-router-dom';
 import { Globe, LogIn } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useAppStore } from '../../store/appStore';
-import { setLanguage } from '../../i18n';
 
 export default function Header() {
   const { t } = useTranslation();
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, updateUser } = useAuthStore();
   const { locale } = useAppStore();
 
-  const toggleLocale = () => {
+  const toggleLocale = async () => {
     const newLocale = locale === 'he' ? 'en' : 'he';
     useAppStore.getState().setLocale(newLocale);
-    setLanguage(newLocale);
+    if (isAuthenticated && user) {
+      try {
+        await updateUser({ locale: newLocale });
+      } catch {
+        /* keep UI locale */
+      }
+    }
   };
 
   return (
@@ -23,11 +28,16 @@ export default function Header() {
 
       <div className="flex items-center gap-3">
         <button
+          type="button"
           onClick={toggleLocale}
+          title={locale === 'he' ? 'Switch to English' : 'עבור לעברית'}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-stone-600 hover:bg-stone-100 transition-colors"
         >
-          <Globe size={16} />
-          {locale === 'he' ? 'EN' : 'עב'}
+          <Globe size={16} aria-hidden />
+          <span className="font-medium">{locale === 'he' ? 'עברית' : 'English'}</span>
+          <span className="text-xs text-stone-400 hidden sm:inline" aria-hidden>
+            → {locale === 'he' ? 'English' : 'עברית'}
+          </span>
         </button>
 
         {isAuthenticated && user ? (

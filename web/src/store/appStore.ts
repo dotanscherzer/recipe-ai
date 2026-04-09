@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { setLanguage } from '../i18n';
 
 interface AppState {
   locale: 'he' | 'en';
@@ -8,14 +10,26 @@ interface AppState {
   setSidebarOpen: (open: boolean) => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
-  locale: 'he',
-  sidebarOpen: false,
-  setLocale: (locale) => {
-    document.documentElement.dir = locale === 'he' ? 'rtl' : 'ltr';
-    document.documentElement.lang = locale;
-    set({ locale });
-  },
-  toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
-  setSidebarOpen: (open) => set({ sidebarOpen: open }),
-}));
+export const useAppStore = create<AppState>()(
+  persist(
+    (set) => ({
+      locale: 'he',
+      sidebarOpen: false,
+      setLocale: (locale) => {
+        set({ locale });
+        setLanguage(locale);
+      },
+      toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+      setSidebarOpen: (open) => set({ sidebarOpen: open }),
+    }),
+    {
+      name: 'recipe-ai-app',
+      partialize: (state) => ({ locale: state.locale }),
+      onRehydrateStorage: () => (state) => {
+        if (state && (state.locale === 'he' || state.locale === 'en')) {
+          setLanguage(state.locale);
+        }
+      },
+    }
+  )
+);

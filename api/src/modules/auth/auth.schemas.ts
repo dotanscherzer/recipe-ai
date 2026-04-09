@@ -29,3 +29,7 @@ export const resetPasswordSchema = z.object({
   token: z.string().min(1, 'Missing token'),
   newPassword: z.string().min(6, 'Password must be at least 6 characters'),
 });
+
+export const oauthExchangeSchema = z.object({
+  code: z.string().min(10, 'Invalid exchange code'),
+});

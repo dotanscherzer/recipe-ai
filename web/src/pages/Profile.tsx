@@ -4,12 +4,11 @@ import { Globe, LogOut, FolderOpen } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useAppStore } from '../store/appStore';
 import { useCategories } from '../hooks/useCategories';
-import { setLanguage } from '../i18n';
 
 export default function Profile() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user, isAuthenticated, logout } = useAuthStore();
+  const { user, isAuthenticated, logout, updateUser } = useAuthStore();
   const { locale } = useAppStore();
   const { data: categories } = useCategories();
 
@@ -18,10 +17,14 @@ export default function Profile() {
     return null;
   }
 
-  const toggleLocale = () => {
+  const toggleLocale = async () => {
     const newLocale = locale === 'he' ? 'en' : 'he';
     useAppStore.getState().setLocale(newLocale);
-    setLanguage(newLocale);
+    try {
+      await updateUser({ locale: newLocale });
+    } catch {
+      /* UI locale kept */
+    }
   };
 
   return (
