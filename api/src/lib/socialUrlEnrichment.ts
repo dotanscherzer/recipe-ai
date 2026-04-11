@@ -1,3 +1,5 @@
+import { env } from '../config/env';
+
 /**
  * Normalize pasted URLs: add https:// when missing (e.g. tiktok.com/... from mobile share),
  * strip invisible RTL / zero-width chars (common in Hebrew UI pastes),
@@ -24,6 +26,15 @@ export type SocialEmbedMeta = {
   providerHtml?: string;
 };
 
+const OEMBED_FETCH_MS = 20_000;
+
+function oembedFetch(url: string) {
+  return fetch(url, {
+    headers: { 'User-Agent': 'RecipeAI/1.0 (recipe import)' },
+    signal: AbortSignal.timeout(OEMBED_FETCH_MS),
+  });
+}
+
 function isTikTokHost(hostname: string): boolean {
   const h = hostname.toLowerCase();
   return h === 'www.tiktok.com' || h === 'tiktok.com' || h === 'vm.tiktok.com';
@@ -37,9 +48,7 @@ function isInstagramHost(hostname: string): boolean {
 export async function fetchTikTokOembed(pageUrl: string): Promise<SocialEmbedMeta | null> {
   try {
     const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(pageUrl)}`;
-    const res = await fetch(oembedUrl, {
-      headers: { 'User-Agent': 'RecipeAI/1.0 (recipe import)' },
-    });
+    const res = await oembedFetch(oembedUrl);
     if (!res.ok) return null;
     const data = (await res.json()) as Record<string, unknown>;
     return {
@@ -53,13 +62,13 @@ export async function fetchTikTokOembed(pageUrl: string): Promise<SocialEmbedMet
   }
 }
 
-/** Meta Graph oEmbed; may return 400 without an app token — caller should fall back. */
+/** Meta Graph oEmbed; returns 400 without a valid `access_token` for most callers. */
 export async function fetchInstagramOembed(pageUrl: string): Promise<SocialEmbedMeta | null> {
   try {
-    const oembedUrl = `https://graph.facebook.com/v12.0/instagram_oembed?url=${encodeURIComponent(pageUrl)}`;
-    const res = await fetch(oembedUrl, {
-      headers: { 'User-Agent': 'RecipeAI/1.0 (recipe import)' },
-    });
+    const token = env.FACEBOOK_APP_ACCESS_TOKEN?.trim();
+    const base = `https://graph.facebook.com/v12.0/instagram_oembed?url=${encodeURIComponent(pageUrl)}`;
+    const oembedUrl = token ? `${base}&access_token=${encodeURIComponent(token)}` : base;
+    const res = await oembedFetch(oembedUrl);
     if (!res.ok) return null;
     const data = (await res.json()) as Record<string, unknown>;
     return {
@@ -125,4 +134,54 @@ export function buildImportUrlUserContent(
   }
 
   return parts.join('\n\n');
+}
+
+/** oEmbed title is usually the post caption when Graph returns data. */
+export function hasRichOembedCaption(embed: SocialEmbedMeta | null): boolean {
+  const t = embed?.title?.trim() ?? '';
+  if (t.length < 18) return false;
+  if (/^(instagram|photo|video|reels)$/i.test(t)) return false;
+  return true;
+}
+
+/**
+ * HTML fetch of instagram.com often returns the login/marketing shell, not the caption.
+ */
+export function looksLikeInstagramUnscrapablePage(pageText: string): boolean {
+  const t = pageText.replace(/\s+/g, ' ').trim();
+  if (t.length < 120) return true;
+  const lower = t.slice(0, 8000).toLowerCase();
+  const shellMarkers = [
+    'log in',
+    'sign up',
+    'log in to instagram',
+    'from meta',
+    'privacy policy',
+    'terms of use',
+    'cookie policy',
+    'help center',
+  ];
+  if (shellMarkers.filter((m) => lower.includes(m)).length >= 3) return true;
+  const igHits = (lower.match(/instagram/g) ?? []).length;
+  if (igHits > 10 && t.length < 4000) return true;
+  return false;
+}
+
+/**
+ * True when we should not ask the LLM to "fill in" an Instagram recipe (avoids hallucinated Hebrew, etc.).
+ */
+export function isInstagramUrlImportInsufficient(
+  normalizedUrl: string,
+  pageText: string,
+  embed: SocialEmbedMeta | null
+): boolean {
+  let host = '';
+  try {
+    host = new URL(normalizedUrl).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (host !== 'www.instagram.com' && host !== 'instagram.com') return false;
+  if (hasRichOembedCaption(embed)) return false;
+  return looksLikeInstagramUnscrapablePage(pageText);
 }

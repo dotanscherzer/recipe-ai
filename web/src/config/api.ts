@@ -2,6 +2,18 @@ const API_URL = import.meta.env.VITE_API_URL || '/api';
 const TOKEN_KEY = 'recipe_ai_token';
 const REFRESH_KEY = 'recipe_ai_refresh';
 
+async function fetchApi(endpoint: string, options: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${API_URL}${endpoint}`, options);
+  } catch (e) {
+    const name = e instanceof Error ? e.name : '';
+    if (name === 'AbortError') {
+      throw new Error('Request timed out');
+    }
+    throw e;
+  }
+}
+
 async function api<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY);
   const headers: Record<string, string> = {
@@ -10,14 +22,14 @@ async function api<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  let response = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+  let response = await fetchApi(endpoint, { ...options, headers });
 
   // Auto-refresh on 401
   if (response.status === 401 && localStorage.getItem(REFRESH_KEY)) {
     const refreshed = await refreshTokens();
     if (refreshed) {
       headers['Authorization'] = `Bearer ${localStorage.getItem(TOKEN_KEY)}`;
-      response = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+      response = await fetchApi(endpoint, { ...options, headers });
     }
   }
 
@@ -204,7 +216,12 @@ export const aiApi = {
   importText: (data: { text: string; locale?: 'en' | 'he' }) =>
     api<any>('/ai/import-text', { method: 'POST', body: JSON.stringify(data) }),
   importUrl: (data: { url: string; locale?: 'en' | 'he' }) =>
-    api<any>('/ai/import-url', { method: 'POST', body: JSON.stringify(data) }),
+    api<any>('/ai/import-url', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      /** Server can spend up to ~3m on LLM; align browser so the UI is not stuck forever. */
+      signal: AbortSignal.timeout(190_000),
+    }),
   importImage: (data: { imageUrl: string; locale?: 'en' | 'he' }) =>
     api<any>('/ai/import-image', { method: 'POST', body: JSON.stringify(data) }),
   chat: (data: any) => api<any>('/ai/chat', { method: 'POST', body: JSON.stringify(data) }),

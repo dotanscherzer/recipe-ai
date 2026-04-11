@@ -40,12 +40,15 @@ export function assertSafeHttpsUrl(raw: string): URL {
 }
 
 const MAX_FETCH_BYTES = 2_000_000;
+/** Avoid hanging import when a remote host never completes the response (e.g. slow social CDNs). */
+const FETCH_DEADLINE_MS = 25_000;
 
 export async function fetchTextFromSafeUrl(url: string): Promise<string> {
   assertSafeHttpsUrl(url);
   const response = await fetch(url, {
     redirect: 'follow',
     headers: { 'User-Agent': 'RecipeAI/1.0 (recipe import)' },
+    signal: AbortSignal.timeout(FETCH_DEADLINE_MS),
   });
   if (!response.ok) {
     throw new AppError(400, 'Failed to fetch the provided URL');

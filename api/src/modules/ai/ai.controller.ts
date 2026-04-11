@@ -14,7 +14,14 @@ import {
   imageImportSystem,
   chatSystem,
 } from './ai.prompts';
-import { buildImportUrlUserContent, fetchSocialEmbedForUrl } from '../../lib/socialUrlEnrichment';
+import {
+  buildImportUrlUserContent,
+  fetchSocialEmbedForUrl,
+  isInstagramUrlImportInsufficient,
+} from '../../lib/socialUrlEnrichment';
+import { withTimeout } from '../../lib/withTimeout';
+
+const IMPORT_URL_LLM_MS = 180_000;
 
 function parseLocale(raw: unknown): RecipeAiLocale {
   return raw === 'he' ? 'he' : 'en';
@@ -114,16 +121,30 @@ export async function importUrl(req: AuthRequest, res: Response) {
   const pageText = $('body').text().replace(/\s+/g, ' ').trim();
 
   const embed = await fetchSocialEmbedForUrl(normalizedUrl);
+  if (isInstagramUrlImportInsufficient(normalizedUrl, pageText, embed)) {
+    const msg =
+      locale === 'he'
+        ? 'לא הצלחנו לקרוא את תיאור המתכון מפוסט אינסטגרם (הדף נחסם או חסר תוכן). העתיקו את הכיתוב מהפוסט לשדה «ייבוא מטקסט», או הגדירו בשרת את FACEBOOK_APP_ACCESS_TOKEN כדי לאפשר קריאת כיתוב דרך Meta.'
+        : 'Could not read recipe text from this Instagram post (the page is blocked or empty). Paste the caption into Import from Text, or set FACEBOOK_APP_ACCESS_TOKEN on the server so Meta oEmbed can return the caption.';
+    throw new AppError(422, msg);
+  }
+
   const userContent = buildImportUrlUserContent(normalizedUrl, pageText, embed);
   const contextLen = Math.max(500, userContent.length);
 
-  const text = await invokeLLM({
-    system: urlImportSystem(locale),
-    messages: [{ role: 'user', content: userContent }],
-    model,
-    add_context_from_internet: true,
-    internetContextLength: contextLen,
-  });
+  const text = await withTimeout(
+    invokeLLM({
+      system: urlImportSystem(locale),
+      messages: [{ role: 'user', content: userContent }],
+      model,
+      add_context_from_internet: true,
+      internetContextLength: contextLen,
+    }),
+    IMPORT_URL_LLM_MS,
+    locale === 'he'
+      ? 'ייבוא המתכון ארך יותר מדי זמן. נסו שוב בעוד רגע או השתמשו בייבוא מטקסט.'
+      : 'Recipe import timed out. Try again in a moment or use Import from Text.'
+  );
 
   const recipe = parseJsonResponse(text);
 
