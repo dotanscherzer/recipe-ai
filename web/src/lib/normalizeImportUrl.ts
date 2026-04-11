@@ -4,11 +4,14 @@ export function normalizeImportUrl(raw: string): string {
     .trim()
     .replace(/[\u200B-\u200D\uFEFF\u202A-\u202E\u200E\u200F]/g, '');
   if (!s) return s;
+  /** RTL / mobile pastes often prefix `/` before `https://`, which would otherwise become `https://https://...`. */
+  s = s.replace(/^\/+/, '');
   while (/[.)\]>]+\s*$/.test(s)) {
     s = s.replace(/[.)\]>]+\s*$/, '').trimEnd();
   }
   if (!/^https?:\/\//i.test(s)) {
-    s = `https://${s.replace(/^\/+/, '')}`;
+    s = `https://${s}`;
   }
+  s = s.replace(/^https:\/\/https:\/\//i, 'https://');
   return s;
 }
