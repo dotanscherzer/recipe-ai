@@ -124,8 +124,8 @@ export async function importUrl(req: AuthRequest, res: Response) {
   if (isInstagramUrlImportInsufficient(normalizedUrl, pageText, embed)) {
     const msg =
       locale === 'he'
-        ? 'לא הצלחנו לקרוא את תיאור המתכון מפוסט אינסטגרם (הדף נחסם או חסר תוכן). העתיקו את הכיתוב מהפוסט לשדה «ייבוא מטקסט», או הגדירו בשרת את FACEBOOK_APP_ACCESS_TOKEN כדי לאפשר קריאת כיתוב דרך Meta.'
-        : 'Could not read recipe text from this Instagram post (the page is blocked or empty). Paste the caption into Import from Text, or set FACEBOOK_APP_ACCESS_TOKEN on the server so Meta oEmbed can return the caption.';
+        ? 'לא הצלחנו לקרוא את תיאור המתכון מאינסטגרם (הדף נחסם או שאין כיתוב זמין). אפשר להעתיק את הכיתוב מהפוסט ל־«ייבוא מטקסט». אם רוצים ייבוא מקישור: ב־Meta for Developers → האפליקציה שלכם → הגדרות → Basic, העתיקו את App ID (מספרים) ואת App Secret, והגדירו בשרת ב־.env: FACEBOOK_APP_ACCESS_TOKEN=מזהה_האפליקציה|App_Secret (מקף אנכי בין המספר לסוד, בלי רווחים).'
+        : 'Could not read the Instagram caption (blocked page or no caption available). Paste the caption under Import from Text. For URL import, set FACEBOOK_APP_ACCESS_TOKEN on the server as APP_ID|APP_SECRET from Meta for Developers → your app → Settings → Basic (numeric App ID, pipe, App Secret, no spaces).';
     throw new AppError(422, msg);
   }
 

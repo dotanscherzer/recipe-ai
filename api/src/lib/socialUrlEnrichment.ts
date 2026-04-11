@@ -66,7 +66,7 @@ export async function fetchTikTokOembed(pageUrl: string): Promise<SocialEmbedMet
 export async function fetchInstagramOembed(pageUrl: string): Promise<SocialEmbedMeta | null> {
   try {
     const token = env.FACEBOOK_APP_ACCESS_TOKEN?.trim();
-    const base = `https://graph.facebook.com/v12.0/instagram_oembed?url=${encodeURIComponent(pageUrl)}`;
+    const base = `https://graph.facebook.com/v21.0/instagram_oembed?url=${encodeURIComponent(pageUrl)}`;
     const oembedUrl = token ? `${base}&access_token=${encodeURIComponent(token)}` : base;
     const res = await oembedFetch(oembedUrl);
     if (!res.ok) return null;
