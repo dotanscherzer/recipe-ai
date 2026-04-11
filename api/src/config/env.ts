@@ -46,6 +46,13 @@ const envSchema = z.object({
 
   UNSPLASH_ACCESS_KEY: z.string().optional(),
 
+  /**
+   * Optional Meta app access token so `instagram_oembed` returns post title/caption.
+   * Without it, Graph often responds 400 and import falls back to scraping — which Instagram blocks.
+   * Format is typically `APP_ID|APP_SECRET` (Classic) or a valid Graph token with `instagram_oembed` access.
+   */
+  FACEBOOK_APP_ACCESS_TOKEN: z.string().optional(),
+
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
 
