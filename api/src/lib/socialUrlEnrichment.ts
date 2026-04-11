@@ -1,4 +1,4 @@
-import { env } from '../config/env';
+import { resolveFacebookGraphAccessToken } from './facebookAccessToken';
 
 /**
  * Normalize pasted URLs: add https:// when missing (e.g. tiktok.com/... from mobile share),
@@ -65,7 +65,7 @@ export async function fetchTikTokOembed(pageUrl: string): Promise<SocialEmbedMet
 /** Meta Graph oEmbed; returns 400 without a valid `access_token` for most callers. */
 export async function fetchInstagramOembed(pageUrl: string): Promise<SocialEmbedMeta | null> {
   try {
-    const token = env.FACEBOOK_APP_ACCESS_TOKEN?.trim();
+    const token = resolveFacebookGraphAccessToken();
     const base = `https://graph.facebook.com/v21.0/instagram_oembed?url=${encodeURIComponent(pageUrl)}`;
     const oembedUrl = token ? `${base}&access_token=${encodeURIComponent(token)}` : base;
     const res = await oembedFetch(oembedUrl);

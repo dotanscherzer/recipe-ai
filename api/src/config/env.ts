@@ -52,6 +52,9 @@ const envSchema = z.object({
    * Format is typically `APP_ID|APP_SECRET` (Classic) or a valid Graph token with `instagram_oembed` access.
    */
   FACEBOOK_APP_ACCESS_TOKEN: z.string().optional(),
+  /** Alternative to `FACEBOOK_APP_ACCESS_TOKEN` when `|` in `.env` is mangled by Docker/panels. */
+  FACEBOOK_APP_ID: z.string().optional(),
+  FACEBOOK_APP_SECRET: z.string().optional(),
 
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
